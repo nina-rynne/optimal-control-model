@@ -49,14 +49,6 @@ cat("Imported economic data dimensions:", dim(economic_imported)[1], "rows,",
 cat("\nSample of imported economic data:\n")
 print(head(economic_imported, 3))
 
-
-
-cat("\nTest script completed.\n")
-
-```
-
-```{r not_complete_code, eval=FALSE, include=FALSE}
-
 # Test interpolate_ssp_emissions function
 # ------------------------------------
 cat("\nTesting interpolate_ssp_emissions function...\n")
@@ -84,3 +76,13 @@ economic_interpolated <- interpolate_ssp_economic(
 )
 cat("Interpolated economic data dimensions:", dim(economic_interpolated)[1], "rows,", 
     dim(economic_interpolated)[2], "columns\n")
+
+cat("\nTest script completed.\n")
+
+```
+
+```{r not_complete_code, eval=FALSE, include=FALSE}
+
+
+```
+

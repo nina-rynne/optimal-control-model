@@ -43,7 +43,6 @@
 #' - import_ssp_economic: Imports economic data from SSP sources
 #' - interpolate_ssp_emissions: Creates a complete emissions time series with interpolated values
 #' - interpolate_ssp_economic: Creates a complete economic data time series with interpolated values
-#' - align_ssp_datasets: Aligns emissions and economic datasets to the same time periods
 #'
 
 #' Each function includes detailed documentation on parameters and returns.
@@ -64,7 +63,6 @@ DATA_DIR <- "data"
 #' Imports emissions scenario data from CSV files for SSP scenarios.
 #' The function expects a CSV file with a structure containing columns for
 #' Model, Scenario, Region, Variable, Unit, and year columns (2005, 2010, etc.).
-#' Uses the here package for file path management.
 #'
 #' @param file_name Name of the file within the data directory (e.g., "emissions_data.csv")
 #' @param scenarios Vector of scenario names to filter (e.g., c("SSP2-Baseline", "SSP5-Baseline")).
@@ -122,8 +120,7 @@ import_ssp_emissions <- function(file_name, scenarios = NULL, regions = "world",
 #' Imports economic data (GDP, GWP) for SSP scenarios from CSV files.
 #' The function expects a CSV file with a structure containing columns for
 #' Model, Scenario, Region, Variable, Unit, and year columns (2005, 2010, etc.).
-#' Economic variables typically include "GDP|PPP" measured in billion US$2005/yr.
-#' Uses the here package for file path management.
+#' Economic variables typically include "GDP" measured in billion US$2005/yr.
 #'
 #' @param file_name Name of the file within the data directory (e.g., "econ_gwp.csv")
 #' @param scenarios Vector of scenario names to filter (e.g., c("SSP2-Baseline", "SSP5-Baseline")).
@@ -136,11 +133,11 @@ import_ssp_emissions <- function(file_name, scenarios = NULL, regions = "world",
 #' # Import all economic data for all scenarios
 #' all_economic <- import_ssp_economic("econ_gwp.csv")
 #'
-#' # Import only specific scenarios with specific variable GDP|PPP
+#' # Import only specific scenarios with specific variable GDP
 #' ssp_economic <- import_ssp_economic(
 #'   file_name = "econ_gwp.csv",
 #'   scenarios = c("SSP3-Baseline", "SSP5-Baseline"),
-#'   variables = "GDP|PPP"
+#'   variables = "GDP"
 #' )
 #'
 
@@ -178,8 +175,7 @@ import_ssp_economic <- function(file_name, scenarios = NULL, regions = "world", 
 #' @title Interpolate SSP Emissions Time Series
 #' @description
 #' Creates a complete emissions time series with specified time step by interpolating
-#' between available data points in the wide-format SSP data. Can preserve specific
-#' historical values if needed.
+#' between available data points in the wide-format SSP data.
 #'
 #' @param emissions_df Data frame containing emissions data in wide format with year columns
 #' @param dt Time step size for interpolation (in years)
@@ -211,8 +207,8 @@ interpolate_ssp_emissions <- function(emissions_df, dt = 1, start_year = 2020, e
     dplyr::select(Scenario, Model, Region, Variable, Unit) %>%
     dplyr::distinct()
   
-  # Create empty dataframe to store results
-  interpolated_data <- data.frame()
+  # Create an empty list to store results from each iteration
+  result_list <- list()
   
   # Process each unique combination
   for (i in 1:nrow(series_groups)) {
@@ -228,51 +224,67 @@ interpolate_ssp_emissions <- function(emissions_df, dt = 1, start_year = 2020, e
         Variable == current$Variable
       )
     
-    # Only proceed if we have data points
-    if (nrow(group_data) > 0) {
-      # Create sequence of years for interpolation
-      years_seq <- seq(start_year, end_year, by = dt)
-      
-      # Create a new dataframe with all years in the sequence
-      new_years <- data.frame(
-        Scenario = current$Scenario,
-        Model = current$Model,
-        Region = current$Region,
-        Variable = current$Variable,
-        Unit = current$Unit,
-        Year = years_seq
-      )
-      
-      # Merge with existing data to keep original values
-      merged_data <- dplyr::full_join(
-        new_years,
-        group_data,
-        by = c("Scenario", "Model", "Region", "Variable", "Unit", "Year")
-      )
-      
-      # Sort by year
-      merged_data <- merged_data %>% dplyr::arrange(Year)
-      
+    # Create sequence of years for interpolation
+    years_seq <- seq(start_year, end_year, by = dt)
+    
+    # Create a new dataframe with all years in the sequence
+    new_years <- data.frame(
+      Scenario = current$Scenario,
+      Model = current$Model,
+      Region = current$Region,
+      Variable = current$Variable,
+      Unit = current$Unit,
+      Year = years_seq
+    )
+    
+    # Merge with existing data to keep original values
+    merged_data <- dplyr::full_join(
+      new_years,
+      group_data,
+      by = c("Scenario", "Model", "Region", "Variable", "Unit", "Year")
+    )
+    
+    # Sort by year
+    merged_data <- merged_data %>% dplyr::arrange(Year)
+    
+    # Get available years and values (non-NA)
+    available_years <- merged_data$Year[!is.na(merged_data$Value)]
+    available_values <- merged_data$Value[!is.na(merged_data$Value)]
+    
+    # Only proceed with interpolation if we have at least 2 valid points
+    if (length(available_values) >= 2) {
       # Perform linear interpolation
-      if (nrow(merged_data) > 1) {
-        # Interpolate missing values
-        interp_values <- approx(
-          x = merged_data$Year[!is.na(merged_data$Value)],
-          y = merged_data$Value[!is.na(merged_data$Value)],
-          xout = merged_data$Year,
-          method = "linear"
-        )
-        
-        merged_data$Value <- interp_values$y
-        
-        # Add to results
-        interpolated_data <- rbind(interpolated_data, merged_data)
-      }
+      interp_values <- approx(
+        x = available_years,
+        y = available_values,
+        xout = merged_data$Year,
+        method = "linear",
+        rule = 2  # rule=2 means extrapolate beyond the data range
+      )
+      
+      merged_data$Value <- interp_values$y
+      
+      # Store this result in the list
+      result_list[[i]] <- merged_data
+    } else if (length(available_values) == 1) {
+      # If only one valid point, use that value for all years
+      merged_data$Value <- available_values[1]
+      
+      # Store this result in the list
+      result_list[[i]] <- merged_data
     }
+    # If zero valid points, we don't add anything to the list
   }
   
-  # Return the interpolated data
-  return(interpolated_data)
+  # Combine all results from the list using bind_rows
+  # This is more reliable than repeatedly using rbind
+  if (length(result_list) > 0) {
+    interpolated_data <- dplyr::bind_rows(result_list)
+    return(interpolated_data)
+  } else {
+    warning("No valid interpolated data was produced. Check input data structure.")
+    return(NULL)
+  }
 }
 
 #' @title Interpolate SSP Economic Time Series
@@ -294,27 +306,100 @@ interpolate_ssp_emissions <- function(emissions_df, dt = 1, start_year = 2020, e
 #'   start_year = 2020,
 #'   end_year = 2100
 #' )
+#' 
+  
 interpolate_ssp_economic <- function(economic_df, dt = 1, start_year = 2020, end_year = 2100) {
-  # Function implementation goes here
+  # Convert wide format to long format first to make interpolation easier
+  economic_long <- economic_df %>%
+    tidyr::pivot_longer(
+      cols = where(is.numeric),  # All numeric columns (years)
+      names_to = "Year",
+      values_to = "Value"
+    ) %>%
+    dplyr::mutate(Year = as.numeric(Year))  # Ensure Year is numeric
+  
+  # Get unique combinations of Scenario, Model, Region, and Variable
+  series_groups <- economic_long %>%
+    dplyr::select(Scenario, Model, Region, Variable, Unit) %>%
+    dplyr::distinct()
+  
+  # Create an empty list to store results from each iteration
+  result_list <- list()
+  
+  # Process each unique combination
+  for (i in 1:nrow(series_groups)) {
+    # Extract current group
+    current <- series_groups[i, ]
+    
+    # Filter data for current group
+    group_data <- economic_long %>%
+      dplyr::filter(
+        Scenario == current$Scenario,
+        Model == current$Model,
+        Region == current$Region,
+        Variable == current$Variable
+      )
+    
+    # Create sequence of years for interpolation
+    years_seq <- seq(start_year, end_year, by = dt)
+    
+    # Create a new dataframe with all years in the sequence
+    new_years <- data.frame(
+      Scenario = current$Scenario,
+      Model = current$Model,
+      Region = current$Region,
+      Variable = current$Variable,
+      Unit = current$Unit,
+      Year = years_seq
+    )
+    
+    # Merge with existing data to keep original values
+    merged_data <- dplyr::full_join(
+      new_years,
+      group_data,
+      by = c("Scenario", "Model", "Region", "Variable", "Unit", "Year")
+    )
+    
+    # Sort by year
+    merged_data <- merged_data %>% dplyr::arrange(Year)
+    
+    # Get available years and values (non-NA)
+    available_years <- merged_data$Year[!is.na(merged_data$Value)]
+    available_values <- merged_data$Value[!is.na(merged_data$Value)]
+    
+    # Only proceed with interpolation if we have at least 2 valid points
+    if (length(available_values) >= 2) {
+      # Perform linear interpolation
+      interp_values <- approx(
+        x = available_years,
+        y = available_values,
+        xout = merged_data$Year,
+        method = "linear",
+        rule = 2  # rule=2 means extrapolate beyond the data range
+      )
+      
+      merged_data$Value <- interp_values$y
+      
+      # Store this result in the list
+      result_list[[i]] <- merged_data
+    } else if (length(available_values) == 1) {
+      # If only one valid point, use that value for all years
+      merged_data$Value <- available_values[1]
+      
+      # Store this result in the list
+      result_list[[i]] <- merged_data
+    }
+    # If zero valid points, we don't add anything to the list
+  }
+  
+  # Combine all results from the list using bind_rows
+  # This is more reliable than repeatedly using rbind
+  if (length(result_list) > 0) {
+    interpolated_data <- dplyr::bind_rows(result_list)
+    return(interpolated_data)
+  } else {
+    warning("No valid interpolated data was produced. Check input data structure.")
+    return(NULL)
+  }
 }
-
-#' @title Align SSP Emissions and Economic Datasets
-#' @description
-#' Aligns and merges emissions and economic datasets to ensure they cover the same time periods
-#' with the same time step, allowing for integrated analysis. Both datasets should be in
-#' the long format returned by the interpolation functions.
-#'
-#' @param emissions_df Data frame containing the interpolated emissions data in long format
-#' @param economic_df Data frame containing the interpolated economic data in long format
-#' @param scenarios Vector of scenario names to include in the aligned dataset
-#' @return A list containing aligned emissions and economic data frames, as well as a
-#'         combined dataset if variables allow for meaningful integration
-#' @examples
-#' aligned_data <- align_ssp_datasets(
-#'   emissions_df = interpolated_emissions,
-#'   economic_df = interpolated_economic,
-#'   scenarios = c("SSP3-Baseline", "SSP5-Baseline")
-#' )
-align_ssp_datasets <- function(emissions_df, economic_df, scenarios = NULL) {
-  # Function implementation goes here
-}
+  
