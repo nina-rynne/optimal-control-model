@@ -54,6 +54,10 @@
 library(dplyr)    # For data manipulation and filtering
 library(tidyr)    # For reshaping data (pivot_wider)
 library(readr)    # For reading CSV files
+library(here)     # For file path management
+
+# Define the data directory path relative to the project root
+DATA_DIR <- "data"
 
 #' @title Import SSP Emissions Data
 #' @description
@@ -84,7 +88,12 @@ library(readr)    # For reading CSV files
 
 import_ssp_emissions <- function(file_name, scenarios = NULL, regions = "world", variables = NULL) {
   # Construct path using here
-  file_path <- here::here("data", file_name)
+  file_path <- here::here(DATA_DIR, file_name)
+  
+  # Check if file exists
+  if (!file.exists(file_path)) {
+    stop("Emissions data file not found: ", file_path)
+  }
   
   # Read the CSV file
   data <- readr::read_csv(file_path, show_col_types = FALSE)
@@ -104,16 +113,8 @@ import_ssp_emissions <- function(file_name, scenarios = NULL, regions = "world",
     data <- data %>% dplyr::filter(Variable %in% variables)
   }
   
-  # Convert to wide format
-  data_wide <- data %>%
-    tidyr::pivot_wider(
-      id_cols = c("Model", "Scenario", "Region", "Variable", "Unit"),
-      names_from = "Year",
-      values_from = "Value"
-    )
-  
   # Return the filtered data frame
-  return(data_wide)
+  return(data)
 }
 
 #' @title Import SSP Economic Data
@@ -145,7 +146,12 @@ import_ssp_emissions <- function(file_name, scenarios = NULL, regions = "world",
 
 import_ssp_economic <- function(file_name, scenarios = NULL, regions = "world", variables = NULL) {
   # Construct path using here
-  file_path <- here::here("data", file_name)
+  file_path <- here::here(DATA_DIR, file_name)
+  
+  # Check if file exists
+  if (!file.exists(file_path)) {
+    stop("Economic data file not found: ", file_path)
+  }
   
   # Read the CSV file
   data <- readr::read_csv(file_path, show_col_types = FALSE)
@@ -165,16 +171,8 @@ import_ssp_economic <- function(file_name, scenarios = NULL, regions = "world", 
     data <- data %>% dplyr::filter(Variable %in% variables)
   }
   
-  # Convert to wide format
-  data_wide <- data %>%
-    tidyr::pivot_wider(
-      id_cols = c("Model", "Scenario", "Region", "Variable", "Unit"),
-      names_from = "Year",
-      values_from = "Value"
-    )
-  
   # Return the filtered data frame
-  return(data_wide)
+  return(data)
 }
 
 #' @title Interpolate SSP Emissions Time Series
@@ -187,8 +185,6 @@ import_ssp_economic <- function(file_name, scenarios = NULL, regions = "world", 
 #' @param dt Time step size for interpolation (in years)
 #' @param start_year Starting year for the interpolated series
 #' @param end_year Ending year for the interpolated series
-#' @param preserve_historical Logical indicating whether to preserve historical values
-#' @param historical_cutoff Year defining the cutoff between historical and projected data
 #' @return A data frame with complete emissions time series at specified time step,
 #'         restructured to long format with columns for Scenario, Model, Region, Variable,
 #'         Unit, Year, and Value
@@ -197,13 +193,86 @@ import_ssp_economic <- function(file_name, scenarios = NULL, regions = "world", 
 #'   emissions_df = ssp_emissions_data,
 #'   dt = 1,
 #'   start_year = 2020,
-#'   end_year = 2100,
-#'   preserve_historical = TRUE,
-#'   historical_cutoff = 2024
+#'   end_year = 2100
 #' )
-interpolate_ssp_emissions <- function(emissions_df, dt = 1, start_year = 2020, end_year = 2100,
-                                      preserve_historical = TRUE, historical_cutoff = 2024) {
-  # Function implementation goes here
+
+interpolate_ssp_emissions <- function(emissions_df, dt = 1, start_year = 2020, end_year = 2100) {
+  # Convert wide format to long format first to make interpolation easier
+  emissions_long <- emissions_df %>%
+    tidyr::pivot_longer(
+      cols = where(is.numeric),  # All numeric columns (years)
+      names_to = "Year",
+      values_to = "Value"
+    ) %>%
+    dplyr::mutate(Year = as.numeric(Year))  # Ensure Year is numeric
+  
+  # Get unique combinations of Scenario, Model, Region, and Variable
+  series_groups <- emissions_long %>%
+    dplyr::select(Scenario, Model, Region, Variable, Unit) %>%
+    dplyr::distinct()
+  
+  # Create empty dataframe to store results
+  interpolated_data <- data.frame()
+  
+  # Process each unique combination
+  for (i in 1:nrow(series_groups)) {
+    # Extract current group
+    current <- series_groups[i, ]
+    
+    # Filter data for current group
+    group_data <- emissions_long %>%
+      dplyr::filter(
+        Scenario == current$Scenario,
+        Model == current$Model,
+        Region == current$Region,
+        Variable == current$Variable
+      )
+    
+    # Only proceed if we have data points
+    if (nrow(group_data) > 0) {
+      # Create sequence of years for interpolation
+      years_seq <- seq(start_year, end_year, by = dt)
+      
+      # Create a new dataframe with all years in the sequence
+      new_years <- data.frame(
+        Scenario = current$Scenario,
+        Model = current$Model,
+        Region = current$Region,
+        Variable = current$Variable,
+        Unit = current$Unit,
+        Year = years_seq
+      )
+      
+      # Merge with existing data to keep original values
+      merged_data <- dplyr::full_join(
+        new_years,
+        group_data,
+        by = c("Scenario", "Model", "Region", "Variable", "Unit", "Year")
+      )
+      
+      # Sort by year
+      merged_data <- merged_data %>% dplyr::arrange(Year)
+      
+      # Perform linear interpolation
+      if (nrow(merged_data) > 1) {
+        # Interpolate missing values
+        interp_values <- approx(
+          x = merged_data$Year[!is.na(merged_data$Value)],
+          y = merged_data$Value[!is.na(merged_data$Value)],
+          xout = merged_data$Year,
+          method = "linear"
+        )
+        
+        merged_data$Value <- interp_values$y
+        
+        # Add to results
+        interpolated_data <- rbind(interpolated_data, merged_data)
+      }
+    }
+  }
+  
+  # Return the interpolated data
+  return(interpolated_data)
 }
 
 #' @title Interpolate SSP Economic Time Series
