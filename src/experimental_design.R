@@ -23,10 +23,8 @@
 #' @repository https://github.com/nina-rynne/optimal-control-model
 #'
 #' @references
-#' - IPCC (2021) Climate Change 2021: The Physical Science Basis. Contribution 
-#' of Working Group I to the Sixth Assessment Report of the Intergovernmental 
-#' Panel on Climate Change [Masson-Delmotte, V. et al (eds.)]. Cambridge University 
-#' Press, Cambridge, United Kingdom and New York, NY, USA, 2391 pp.
+#' - Carnell, R. (2006). lhs: Latin Hypercube Samples (p. 1.2.0) [Computer software]. 
+#'   https://CRAN.R-project.org/package=lhs
 #'
 #' @dependencies
 #' Required packages: lhs, dplyr, here
