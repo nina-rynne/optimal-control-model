@@ -17,15 +17,15 @@
 #'
 #' @collaborators List any collaborators or contributors
 #'
+#' @contact nina.rynne@griffithuni.edu.au
+#'
+#' @repository https://github.com/nina-rynne/optimal-control-model
+#' 
 #' @references
 #' Riahi et al. (2017). The Shared Socioeconomic Pathways and their energy, 
 #' land use, and greenhouse gas emissions implications: An overview, Global Environmental Change
 #'  – processed by Our World in Data
 #'  - https://ourworldindata.org/explorers/ipcc-scenarios
-#'
-#' @contact nina.rynne@griffithuni.edu.au
-#'
-#' @repository https://github.com/nina-rynne/optimal-control-model
 #'
 #'OTHER DATA TO CONSIDER INCLUDING
 #'- data sources (version numbers, DOIs, access dates)
