@@ -81,14 +81,40 @@ generate_lhs_samples <- function(n_samples = 50,
   
   # Define parameter ranges
   parameter_ranges <- list(
-    param1 = c(min = 0, max = 1),
-    param2 = c(min = 10, max = 100),
-    param3 = c(min = -5, max = 5),
-    param4 = c(min = 0.01, max = 0.1),
-    param5 = c(min = 100, max = 500)
+    tcre = c(min = 0.27, max = 0.63), # transient climate response to cumulative emissions
+    cost_mitig = c(min = 200, max = 1000), # cost of deploying mitigation
+    cost_remov = c(min = 5, max = 1000), # cost of deploying CDR
+    econ_dam_pct = c(min = 0.05, max = 0.2), # proportion of GWP reduced by climate damage
+    disc_rate = c(min = 0.01, max = 0.05) # future discounting
   )
   
-  # Continue with rest of function...
+  # Generate Latin Hypercube samples
+  raw_lhs <- NULL
+  if (sampling_method == "random") {
+    raw_lhs <- randomLHS(n = n_samples, k = length(parameter_ranges))
+  } else if (sampling_method == "optimum") {
+    raw_lhs <- optimumLHS(n = n_samples, k = length(parameter_ranges))
+  } else if (sampling_method == "genetic") {
+    raw_lhs <- geneticLHS(n = n_samples, k = length(parameter_ranges))
+  }
+  
+  # Scale the samples to the parameter ranges
+  parameter_samples <- data.frame(raw_lhs)
+  names(parameter_samples) <- names(parameter_ranges)
+  
+  # Transform the unit interval values to the actual parameter ranges
+  for (param_name in names(parameter_ranges)) {
+    param_range <- parameter_ranges[[param_name]]
+    parameter_samples[[param_name]] <- param_range["min"] + 
+      parameter_samples[[param_name]] * (param_range["max"] - param_range["min"])
+  }
+  
+  if (return_raw) {
+    return(list(raw_samples = raw_lhs, 
+                scaled_samples = parameter_samples))
+  } else {
+    return(parameter_samples)
+  }
 }
 
 

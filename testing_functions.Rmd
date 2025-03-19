@@ -15,10 +15,11 @@ library(dplyr)
 library(tidyr)
 library(readr)
 library(here)
+library(testthat)
 
 ```
 
-```{r data_preparation_test}
+```{r data_preparation_test, eval=FALSE, include=FALSE}
 
 # Source the data preparation functions
 source(here::here("src", "data_preparation.R"))
@@ -80,6 +81,134 @@ cat("Interpolated economic data dimensions:", dim(economic_interpolated)[1], "ro
 cat("\nTest script completed.\n")
 
 ```
+
+```{r experimental_design_test, eval=FALSE, include=FALSE}
+# This script tests the functionality of the generate_lhs_samples function
+# from the experimental_design.R script in the src directory
+
+# Source the experimental_design.R script from the src directory
+source("src/experimental_design.R")
+
+# Run the function with default parameters and display the results
+cat("\n=== SAMPLE OUTPUT WITH DEFAULT PARAMETERS ===\n")
+default_samples <- generate_lhs_samples()
+cat("\nFirst 10 rows of the generated samples:\n")
+print(head(default_samples, 10))
+
+cat("\nSummary statistics of the generated samples:\n")
+print(summary(default_samples))
+
+# Define tests
+test_that("generate_lhs_samples produces expected outputs", {
+  
+  # Test 1: Basic execution with default parameters
+  cat("Test 1: Basic execution with default parameters\n")
+  result_default <- generate_lhs_samples()
+  
+  # Check result structure
+  expect_true(is.data.frame(result_default))
+  expect_equal(nrow(result_default), 50)  # Default n_samples is 50
+  expect_equal(ncol(result_default), 5)   # There should be 5 parameters
+  
+  # Check parameter names
+  expected_params <- c("tcre", "cost_mitig", "cost_remov", "econ_dam_pct", "disc_rate")
+  expect_equal(names(result_default), expected_params)
+  
+  # Test 2: Parameter values are within expected ranges
+  cat("Test 2: Parameter values are within expected ranges\n")
+  expect_true(all(result_default$tcre >= 0.27 & result_default$tcre <= 0.63))
+  expect_true(all(result_default$cost_mitig >= 200 & result_default$cost_mitig <= 1000))
+  expect_true(all(result_default$cost_remov >= 5 & result_default$cost_remov <= 1000))
+  expect_true(all(result_default$econ_dam_pct >= 0.05 & result_default$econ_dam_pct <= 0.2))
+  expect_true(all(result_default$disc_rate >= 0.01 & result_default$disc_rate <= 0.05))
+  
+  # Test 3: Reproducibility with seed
+  cat("Test 3: Reproducibility with seed\n")
+  result_seed1 <- generate_lhs_samples(seed = 123)
+  result_seed2 <- generate_lhs_samples(seed = 123)
+  expect_equal(result_seed1, result_seed2)
+  
+  # Test 4: Different sampling methods
+  cat("Test 4: Different sampling methods\n")
+  result_optimum <- generate_lhs_samples(sampling_method = "optimum")
+  result_genetic <- generate_lhs_samples(sampling_method = "genetic")
+  
+  expect_true(is.data.frame(result_optimum))
+  expect_true(is.data.frame(result_genetic))
+  expect_equal(nrow(result_optimum), 50)
+  expect_equal(nrow(result_genetic), 50)
+  
+  # Test 5: Return raw option
+  cat("Test 5: Return raw option\n")
+  result_raw <- generate_lhs_samples(return_raw = TRUE)
+  
+  expect_true(is.list(result_raw))
+  expect_equal(length(result_raw), 2)
+  expect_true("raw_samples" %in% names(result_raw))
+  expect_true("scaled_samples" %in% names(result_raw))
+  expect_equal(dim(result_raw$raw_samples), c(50, 5))
+  expect_equal(dim(result_raw$scaled_samples), c(50, 5))
+  
+  # Test 6: Custom sample size
+  cat("Test 6: Custom sample size\n")
+  result_custom <- generate_lhs_samples(n_samples = 100)
+  
+  expect_equal(nrow(result_custom), 100)
+  
+  # Test 7: Error handling - invalid sample size
+  cat("Test 7: Error handling - invalid sample size\n")
+  expect_error(generate_lhs_samples(n_samples = -10))
+  expect_error(generate_lhs_samples(n_samples = "invalid"))
+  
+  # Test 8: Error handling - invalid sampling method
+  cat("Test 8: Error handling - invalid sampling method\n")
+  expect_error(generate_lhs_samples(sampling_method = "invalid_method"))
+  
+  # Test 9: Error handling - invalid return_raw
+  cat("Test 9: Error handling - invalid return_raw\n")
+  expect_error(generate_lhs_samples(return_raw = "yes"))
+})
+
+# Run distribution tests
+test_that("LHS generates well-distributed samples", {
+  
+  # Test 10: Distribution properties
+  cat("Test 10: Distribution properties\n")
+  set.seed(42)
+  samples <- generate_lhs_samples(n_samples = 1000)
+  
+  # Check that samples are relatively uniformly distributed (using quartiles)
+  for (param in names(samples)) {
+    quartiles <- quantile(samples[[param]], probs = c(0.25, 0.5, 0.75))
+    range_size <- max(samples[[param]]) - min(samples[[param]])
+    
+    # Check if quartiles are roughly where they should be
+    expect_true(abs(quartiles[1] - (min(samples[[param]]) + 0.25 * range_size)) < 0.1 * range_size)
+    expect_true(abs(quartiles[2] - (min(samples[[param]]) + 0.5 * range_size)) < 0.1 * range_size)
+    expect_true(abs(quartiles[3] - (min(samples[[param]]) + 0.75 * range_size)) < 0.1 * range_size)
+  }
+})
+
+# Run performance tests
+test_that("Function performs within acceptable limits", {
+  
+  # Test 11: Performance test
+  cat("Test 11: Performance test\n")
+  start_time <- Sys.time()
+  generate_lhs_samples(n_samples = 1000)
+  end_time <- Sys.time()
+  
+  # Function should run in less than 2 seconds for 1000 samples
+  execution_time <- as.numeric(difftime(end_time, start_time, units = "secs"))
+  expect_true(execution_time < 2)
+})
+
+# Summary of test results
+cat("\nAll tests completed.\n")
+
+
+```
+
 
 ```{r not_complete_code, eval=FALSE, include=FALSE}
 
