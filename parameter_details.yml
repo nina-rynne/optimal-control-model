@@ -6,19 +6,18 @@
 
 # === Physical Constants ===
 # These parameters are based on established scientific constants
-physical_constants:
-  # Initial global temperature anomaly (°C above pre-industrial, at 2020)
-  temp_init: 1.2
+
+# Initial global temperature anomaly (°C above pre-industrial, at 2020)
+temp_init: 1.2
   
-  # Preindustrial CO2 concentration (ppm)
-  co2_conc_preind: 280
+# Preindustrial CO2 concentration (ppm)
+co2_conc_preind: 280
   
 # === Experimental Parameters ===
 # These parameters can be adjusted depending on the constraints of the optimal control problem
-experimental_parameters:
 
-  # CO2 emissions volume at 2100 to reach 1.5°C target (based on TCRE of 0.45)
-  co2_target_2100: 700
+# CO2 emissions volume at 2100 to reach 1.5°C target (based on TCRE of 0.45)
+co2_target_2100: 700
 
 # === Economic Parameters ===
 # No fixed economic parameters.
@@ -27,30 +26,30 @@ experimental_parameters:
 
 # === Model Configuration ===
 # These parameters control model behavior rather than physical properties
-model_config:
-  # Time step for model integration (years)
-  time_step: 1
+
+# Time step for model integration (years)
+time_step: 1
   
-  # Number of time periods to calculate
-  # n_periods: 100
+# Number of time periods to calculate
+# n_periods: 100
   
-  # Mitigation cost exponent
-  exp_mitig: 2
+# Mitigation cost exponent
+exp_mitig: 2
   
-  # CDR cost exponent
-  exp_remov: 2
+# CDR cost exponent
+exp_remov: 2
   
-  # Residual climate damage exponent
-  exp_dam: 2
+# Residual climate damage exponent
+exp_dam: 2
   
-  # Forward-backward sweep update weight
-  upd_weight: 0.01
+# Forward-backward sweep update weight
+upd_weight: 0.01
   
-  # Transversality condition (default = 0, used when no final temp target)
-  trans_cond: 0
+# Transversality condition (default = 0, used when no final temp target)
+trans_cond: 0
+
+# Initial lower transversality bound for shooting method
+trans_low: 0
   
-  # Initial lower transversality bound for shooting method
-  trans_low: 0
-  
-  # Initial upper transversality bound for shooting method
-  trans_high: 5
+# Initial upper transversality bound for shooting method
+trans_high: 5

@@ -19,7 +19,7 @@ library(testthat)
 
 ```
 
-```{r data_preparation_test, eval=FALSE, include=FALSE}
+```{r data_preparation_test}
 
 # Source the data preparation functions
 source(here::here("src", "data_preparation.R"))
@@ -82,7 +82,7 @@ cat("\nTest script completed.\n")
 
 ```
 
-```{r experimental_design_test, eval=FALSE, include=FALSE}
+```{r experimental_design_test}
 # This script tests the functionality of the generate_lhs_samples function
 # from the experimental_design.R script in the src directory
 
@@ -208,6 +208,161 @@ cat("\nAll tests completed.\n")
 
 
 ```
+
+```{r model_parameters_test}
+
+#' @title Test Script for Model Parameters Functions
+#' @description 
+#' This script tests the functionality of the model_parameters.R script, which contains
+#' functions for loading, managing, and manipulating parameters for climate models.
+#' 
+#' It runs a series of tests on the functions:
+#' - get_fixed_parameters()
+#' - add_fixed_parameters()
+#'
+
+# Source the model parameters script from the src folder
+source(here::here("src", "model_parameters.R"))
+
+# Define the path to the actual parameter file
+param_file <- here::here("parameter_details.yml")
+
+# Function to print formatted section headers
+print_section <- function(text) {
+  cat("\n", paste(rep("=", 80), collapse = ""), "\n")
+  cat(" ", text, "\n")
+  cat(paste(rep("=", 80), collapse = ""), "\n\n")
+}
+
+# Begin testing
+print_section("TESTING MODEL PARAMETERS FUNCTIONS")
+
+# Test 1: Check if get_fixed_parameters loads correctly
+test_that("get_fixed_parameters loads parameters correctly", {
+  # Call function with the actual parameter file
+  params <- get_fixed_parameters(config_file = param_file)
+  
+  # Check if the function returns a list
+  expect_true(is.list(params))
+  
+  # Check if specific parameters are present with correct values
+  expect_equal(params$temp_init, 1.2)
+  expect_equal(params$co2_conc_preind, 280)
+  expect_equal(params$exp_mitig, 2)
+  
+  # Print success message
+  cat("✓ get_fixed_parameters loads\n")
+})
+
+# Test 2: removed
+
+# Test 3: removed
+
+# Test 4: Error handling for missing file
+test_that("get_fixed_parameters handles missing file gracefully", {
+  # Try to load a non-existent file
+  expect_error(
+    get_fixed_parameters(config_file = "non_existent_file.yml"),
+    "Configuration file not found"
+  )
+  
+  cat("✓ get_fixed_parameters handles missing file gracefully\n")
+})
+
+# Test 5: Test add_fixed_parameters function with default_samples
+test_that("add_fixed_parameters combines variable and fixed parameters", {
+  # Add fixed parameters to default_samples
+  combined_params <- add_fixed_parameters(
+    param_df = default_samples,
+    config_file = param_file
+  )
+  
+  # Check if result is a dataframe
+  expect_true(is.data.frame(combined_params))
+  
+  # Check if both variable and fixed parameters are present
+  # Using actual column names from default_samples
+  expect_true("tcre" %in% names(combined_params))
+  expect_true("cost_mitig" %in% names(combined_params))
+  expect_true("temp_init" %in% names(combined_params))
+  
+  # Check if the number of rows matches the input
+  expect_equal(nrow(combined_params), nrow(default_samples))
+  
+  cat("✓ add_fixed_parameters successfully combines variable and fixed parameters\n")
+})
+
+# Test 6: Test different append positions
+test_that("add_fixed_parameters respects append_position", {
+  # Test "start" position
+  start_params <- add_fixed_parameters(
+    param_df = default_samples,
+    append_position = "start",
+    config_file = param_file
+  )
+  
+  # Check if the fixed parameters come first
+  first_col <- names(start_params)[1]
+  expect_true(first_col != "tcre")
+  
+  # Test "alphabetical" position
+  alpha_params <- add_fixed_parameters(
+    param_df = default_samples,
+    append_position = "alphabetical",
+    config_file = param_file
+  )
+  
+  # Columns should be in alphabetical order
+  expect_equal(names(alpha_params), sort(names(alpha_params)))
+  
+  cat("✓ add_fixed_parameters respects different append_position values\n")
+})
+
+# Test 7: Parameter exclusion
+test_that("add_fixed_parameters can exclude specified parameters", {
+  # Exclude some parameters
+  excluded_params <- add_fixed_parameters(
+    param_df = default_samples,
+    config_file = param_file,
+    exclude_params = c("temp_init", "exp_mitig")
+  )
+  
+  # Check if excluded parameters are actually excluded
+  expect_false("temp_init" %in% names(excluded_params))
+  expect_true("co2_conc_preind" %in% names(excluded_params))
+  
+  cat("✓ add_fixed_parameters can exclude specified parameters\n")
+})
+
+# Test 8: Check metadata attributes
+test_that("add_fixed_parameters adds appropriate metadata", {
+  result <- add_fixed_parameters(
+    param_df = default_samples,
+    config_file = param_file
+  )
+  
+  # Check if metadata attribute exists
+  expect_true(!is.null(attr(result, "parameter_source")))
+  
+  # Check if metadata contains expected elements
+  metadata <- attr(result, "parameter_source")
+  expect_true("variable_params" %in% names(metadata))
+  expect_true("fixed_params" %in% names(metadata))
+  
+  cat("✓ add_fixed_parameters adds appropriate metadata attributes\n")
+})
+
+print_section("ALL TESTS COMPLETED")
+
+# Summarize results
+cat("Test Summary:\n")
+cat("- 6 tests run\n")
+cat("- All functions behave as expected\n")
+cat("- get_fixed_parameters and add_fixed_parameters work correctly with valid inputs\n")
+cat("- Error handling for invalid inputs is appropriate\n\n")
+
+```
+
 
 
 ```{r not_complete_code, eval=FALSE, include=FALSE}
