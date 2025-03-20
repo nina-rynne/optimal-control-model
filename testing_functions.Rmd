@@ -352,17 +352,192 @@ test_that("add_fixed_parameters adds appropriate metadata", {
   cat("✓ add_fixed_parameters adds appropriate metadata attributes\n")
 })
 
+# Test 9: Just run get_fixed_parameters with default options and print the result
+cat("Test 9: Running get_fixed_parameters() with default options:\n")
+default_params <- get_fixed_parameters()
+cat("\nStructure of the returned parameters:\n")
+str(default_params)
+cat("\nFirst few parameters:\n")
+if (length(default_params) > 0) {
+  head_params <- head(default_params, 5)
+  for (name in names(head_params)) {
+    cat(sprintf("  %s: %s\n", name, as.character(head_params[[name]])))
+  }
+} else {
+  cat("  No parameters found\n")
+}
+
+# Test 10: Run add_fixed_parameters with default options and print the result
+cat("\nTest 10: Running add_fixed_parameters() with default options:\n")
+combined_default <- add_fixed_parameters(default_samples)
+cat("\nStructure of the returned dataframe:\n")
+str(combined_default)
+cat("\nColumn names in the combined dataframe:\n")
+cat(paste(names(combined_default), collapse = ", "), "\n")
+cat("\nFirst few rows of the combined dataframe:\n")
+print(head(combined_default, 3))
+
+cat("\n✓ Default function outputs displayed for inspection\n")
+
 print_section("ALL TESTS COMPLETED")
 
 # Summarize results
 cat("Test Summary:\n")
-cat("- 6 tests run\n")
+cat("- 8 tests run\n")
 cat("- All functions behave as expected\n")
 cat("- get_fixed_parameters and add_fixed_parameters work correctly with valid inputs\n")
 cat("- Error handling for invalid inputs is appropriate\n\n")
 
 ```
+```{r optimal_control_test}
 
+#' @title Run Optimal Control Simulations for Climate Temperature Overshoot
+#' @description
+#' This script demonstrates how to run optimal control simulations using the
+#' framework with Latin Hypercube Sampling of uncertain parameters.
+#'
+#' @author Nina Rynne
+#' @project Optimal Control of Temperature Overshoot
+#' @date March 2025
+#' @license MIT
+#' @version 0.1.0
+#'
+
+# Load required packages
+library(dplyr)    # For data manipulation
+library(tidyr)    # For reshaping data
+library(here)     # For file path management
+library(ggplot2)  # For plotting (if needed)
+
+# Source required function scripts
+source(here::here("src", "data_preparation.R"))      # For data loading and preparation
+source(here::here("src", "experimental_design.R"))   # For LHS parameter sampling
+source(here::here("src", "model_parameters.R"))      # For parameter management
+source(here::here("src", "optimal_control.R"))       # For optimal control simulations
+
+# Set random seed for reproducibility
+set.seed(42)
+
+# ---- 1. Import and prepare emissions data ----
+# Load SSP3-7.0 emissions data
+emissions_data <- import_ssp_emissions(
+  file_name = "emissions.csv",
+  scenarios = "SSP3-Baseline",
+  variables = "CO2 emissions"
+)
+
+# Interpolate emissions to annual time steps
+emissions_interpolated <- interpolate_ssp_emissions(
+  emissions_df = emissions_data,
+  dt = 1,
+  start_year = 2020,
+  end_year = 2100
+)
+
+# ---- 2. Import and prepare economic data ----
+# Load economic data for damage calculation (optional)
+economic_data <- import_ssp_economic(
+  file_name = "gwp.csv",
+  scenarios = "SSP3-Baseline",
+  variables = "GDP"
+)
+
+# Interpolate economic data to annual time steps
+economic_interpolated <- interpolate_ssp_economic(
+  economic_df = economic_data,
+  dt = 1,
+  start_year = 2020,
+  end_year = 2100
+)
+
+# ---- 3. Generate parameter sets using Latin Hypercube Sampling ----
+# Generate 50 parameter sets using optimum LHS
+lhs_samples <- generate_lhs_samples(
+  n_samples = 50,
+  seed = 42,
+  sampling_method = "optimum"
+)
+
+# Add fixed parameters to create complete parameter sets
+parameter_sets <- add_fixed_parameters(
+  param_df = lhs_samples,
+  append_position = "end"
+)
+
+# Print the first few parameter sets to verify
+cat("Generated", nrow(parameter_sets), "parameter sets\n")
+print(head(parameter_sets, 3))
+
+# ---- 4. Run a single simulation test ----
+# Extract first parameter set for testing
+test_params <- parameter_sets[1, ]
+
+# Initialize a log file for the test run
+test_log <- init_log_file("test_run")
+cat("Running test simulation with first parameter set\n")
+
+# Run test simulation using shooting method
+test_result <- run_single_simulation(
+  emissions_df = emissions_interpolated,
+  parameters = test_params,
+  gwp_df = economic_interpolated,
+  method = "shooting",
+  verbose = TRUE,
+  log_file = test_log
+)
+
+# Check test result
+cat("Test simulation completed\n")
+cat("Final cumulative emissions:", 
+    test_result$Cumulative_Emissions[nrow(test_result)], "GtCO2\n")
+cat("Maximum temperature:", max(test_result$Temp_Anom_C), "°C\n")
+
+# ---- 5. Run multiple simulations (comment out for initial testing) ----
+# Uncomment to run multiple simulations
+
+# cat("Running simulations for all parameter sets\n")
+# 
+# # Run simulations for all parameter sets
+# all_results <- run_multiple_simulations(
+#   emissions_df = emissions_interpolated,
+#   parameter_sets = parameter_sets,
+#   gwp_df = economic_interpolated,
+#   method = "shooting",
+#   parallel = FALSE,  # Set to TRUE to use parallel processing
+#   save_results = TRUE
+# )
+# 
+# # Print summary of results
+# cat("Completed", all_results$n_success, "successful simulations out of", 
+#     nrow(parameter_sets), "total\n")
+# 
+# # Examine distribution of key metrics
+# if (all_results$n_success > 0) {
+#   summary_stats <- summary(all_results$summary)
+#   print(summary_stats)
+# }
+
+# ---- 6. Plot results from test simulation ----
+# Create a basic plot of temperature trajectories
+ggplot(test_result) +
+  geom_line(aes(x = Year, y = Temp_Anom_C), color = "blue", linewidth = 0.8) +
+  geom_line(aes(x = Year, y = Temp_Anom_Baseline_C), color = "black", linetype = "dashed") +
+  geom_hline(yintercept = 1.5, color = "red", linetype = "dotted", linewidth = 0.8) +
+  labs(title = "Temperature Trajectories",
+       subtitle = "Blue = Optimal, Black = Baseline, Red = 1.5°C threshold",
+       x = "Year", 
+       y = "Temperature (°C)") +
+  theme_minimal()
+
+# Save the plot
+ggsave(here::here("figs", "plots", paste0("temperature_trajectory_", 
+                                  format(Sys.time(), "%Y%m%d_%H%M%S"), ".png")),
+       width = 8, height = 6)
+
+cat("Simulation complete. Results saved to the results and plots directories.\n")
+
+
+```
 
 
 ```{r not_complete_code, eval=FALSE, include=FALSE}
