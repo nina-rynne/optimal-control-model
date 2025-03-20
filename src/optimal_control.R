@@ -157,7 +157,7 @@ forward_backward_sweep <- function(emissions_df,
   counter <- 0 # start counter
   
   # Extract emissions data
-  e_base <- emissions_df$value  # yearly baseline emissions from SSP scenario
+  e_base <- emissions_df$Value  # yearly baseline emissions from SSP scenario
   years <- emissions_df$Year
   year_rel <- years - min(years)  # years relative to start year
   n_years <- length(years)
@@ -181,22 +181,24 @@ forward_backward_sweep <- function(emissions_df,
   
   # Initialize GWP (Gross World Product) for damage calculation
   if (!is.null(gwp_df)) {
-    # Merge GWP data with years
     gwp <- gwp_df$value
     log_message("Using provided GWP forecasts")
   } else {
-    # Default GWP growth if not provided
-    gwp_0 <- 100  # Trillion USD, example value
-    gwp_growth <- 0.025  # Annual growth rate
-    gwp <- gwp_0 * (1 + gwp_growth)^year_rel
-    log_message("Using default GWP growth model")
+    stop("GWP forecast data is required but was not provided.")
   }
   
   # Calculate baseline temperature
   T_anom_baseline <- temp_init + tcre * cumsum(e_base)
   
   # Initialize first time step
-  e_real[1] <- e_base[1]
+  # Initialize first time step - with error handling
+  if(length(e_base) > 0 && !is.na(e_base[1])) {
+    e_real[1] <- e_base[1]
+  } else {
+    # Handle the case where e_base is empty or NA
+    e_real[1] <- 0
+    warning("Baseline emissions data is empty or starts with NA. Setting initial e_real to 0.")
+  }
   T_anom[1] <- T_anom_baseline[1]
   
   # Calculate damage function
@@ -259,9 +261,44 @@ forward_backward_sweep <- function(emissions_df,
     # Update mitigation control
     u_m1 <- (lambda / (exp_mitig * cost_mitig) * exp(disc_rate * year_rel))^(1/(exp_mitig-1))
     
+    # Debug NA values in u_m1
+    if (any(is.na(u_m1))) {
+      cat("Debug info for NA detection in u_m1:\n")
+      cat("Iteration:", counter, "\n")
+      cat("lambda[1:5]:", paste(lambda[1:5], collapse=", "), "\n")
+      cat("exp_mitig:", exp_mitig, "\n")
+      cat("cost_mitig:", cost_mitig, "\n")
+      cat("disc_rate:", disc_rate, "\n")
+      cat("year_rel[1:5]:", paste(year_rel[1:5], collapse=", "), "\n")
+      
+      # Find problematic indices
+      na_indices <- which(is.na(u_m1))
+      cat("NA indices:", paste(na_indices, collapse=", "), "\n")
+      
+      if (length(na_indices) > 0) {
+        i <- na_indices[1]  # Examine first problematic index
+        cat("Problem at index", i, ":\n")
+        cat("lambda[i]:", lambda[i], "\n")
+        cat("Expression value:", (lambda[i] / (exp_mitig * cost_mitig) * exp(disc_rate * year_rel[i])), "\n")
+        cat("Exponent value:", (1/(exp_mitig-1)), "\n")
+      }
+      
+      stop("NA values detected in control calculation")
+    }
+    
     # Apply control bounds
     u_m1[u_m1 < u_m_min] <- u_m_min
+    # Add validation at the beginning of the function
+    if (any(is.na(e_base))) {
+      stop("Baseline emissions data contains NA values, which will cause errors in the optimization. Please clean your data before proceeding.")
+    }
+    
+    # For the control bounds check, instead of setting safe values:
     for (i in 1:n_years) {
+      if (is.na(u_m1[i]) || is.na(u_m_max[i])) {
+        stop("NA values detected in control or bounds during iteration. This indicates a problem with input data or model configuration.")
+      }
+      
       if (u_m1[i] > u_m_max[i]) {
         u_m1[i] <- u_m_max[i]
       }

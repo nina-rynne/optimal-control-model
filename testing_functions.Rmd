@@ -16,6 +16,7 @@ library(tidyr)
 library(readr)
 library(here)
 library(testthat)
+library(ggplot2)  # For plotting (if needed)
 
 ```
 
@@ -389,6 +390,7 @@ cat("- get_fixed_parameters and add_fixed_parameters work correctly with valid i
 cat("- Error handling for invalid inputs is appropriate\n\n")
 
 ```
+
 ```{r optimal_control_test}
 
 #' @title Run Optimal Control Simulations for Climate Temperature Overshoot
@@ -402,12 +404,6 @@ cat("- Error handling for invalid inputs is appropriate\n\n")
 #' @license MIT
 #' @version 0.1.0
 #'
-
-# Load required packages
-library(dplyr)    # For data manipulation
-library(tidyr)    # For reshaping data
-library(here)     # For file path management
-library(ggplot2)  # For plotting (if needed)
 
 # Source required function scripts
 source(here::here("src", "data_preparation.R"))      # For data loading and preparation
