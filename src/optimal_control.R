@@ -120,9 +120,9 @@ create_vector_list <- function(parameter_df,
   
   # Control variables with bounds
   # numeric vector of mitigation control at each time step, initialised to 0
-  mitigation_amount <- rep(0, n_years)
+  qty_mitig <- rep(0, n_years)
   # numeric vector of CDR control at each time step, initialised to 0
-  removal_amount <- rep(0, n_years)
+  qty_remov <- rep(0, n_years)
   mitigation_max <- baseline_annual_emissions
   # note: all other min/max values are single parameters, stored in parameter_df
   
@@ -130,12 +130,6 @@ create_vector_list <- function(parameter_df,
   # numeric vector of adjoint variable, initialised to 0
   adjoint_var <- rep(0, n_years)
   adjoint_var[n_years] <- trans_cond  # Set Terminal condition for final value of lambda
-  
-  # Cost components
-  mitigation_cost <- rep(NA, n_years)
-  removal_cost <- rep(NA, n_years)
-  residual_damage <- rep(NA, n_years)
-  total_cost <- rep(NA, n_years)
   
   # Gross World Product
   baseline_annual_gwp <- economic_df %>%
@@ -148,6 +142,33 @@ create_vector_list <- function(parameter_df,
   cost_resid_cumul <- rep(NA, n_years)
   cost_total_cumul <- rep(NA, n_years)
   
+  return(list(
+    
+    # Time variables
+    years = years,
+    years_rel = years_rel,
+    n_years = n_years,
+    
+    # State variables
+    baseline_annual_emissions = baseline_annual_emissions,
+    temperature_anomaly = temperature_anomaly,
+    cumulative_emissions = cumulative_emissions,
+    
+    # Control variables and bounds
+    qty_mitig = qty_mitig,
+    qty_remov = qty_remov,
+    mitigation_max = mitigation_max,
+    
+    # Adjoint variable
+    adjoint_var = adjoint_var,
+    
+    # Cost components
+    baseline_annual_gwp = baseline_annual_gwp,
+    cost_mitig_cumul = cost_mitig_cumul,
+    cost_remov_cumul = cost_remov_cumul,
+    cost_resid_cumul = cost_resid_cumul,
+    cost_total_cumul = cost_total_cumul
+  ))
 }
 
 #' @title Forward-Backward Sweep for Optimal Control
@@ -179,23 +200,27 @@ forward_backward_sweep <- function(emissions_df,
                                    log_file = NULL
                                    ) {
   
-  # Extract parameters
+  # Extract parameters for readability
+  n_years <- vector_list$n_years
   tcre <- parameters$tcre                  # Transient climate response to emissions (gam)
-  cost_mitig <- parameters$cost_mitig      # Cost of mitigation (F_m)
-  cost_remov <- parameters$cost_remov      # Cost of removal (F_r)
+  cost_mitig_unit <- parameters$cost_mitig # Cost of mitigation (F_m)
+  cost_remov_unit <- parameters$cost_remov # Cost of removal (F_r)
   econ_dam_pct <- parameters$econ_dam_pct  # Economic damage coefficient
   disc_rate <- parameters$disc_rate        # Discount rate (del)
+  clim_temp_init <- parameters$temp_init   # Initial temperature anomaly (T_0)
+  time_step <- parameters$time_step        # Time step (dt)
+  exp_mitig <- parameters$exp_mitig        # Mitigation exponent (q)
+  exp_remov <- parameters$exp_remov        # Removal exponent (r)
+  exp_dam <- parameters$exp_dam            # Damage exponent (s)
+  upd_weight <- parameters$upd_weight      # Update weight
+  trans_cond <- parameters$trans_cond      # Transversality condition (d)
   
-  # Extract or set fixed parameters
-  temp_init <- parameters$temp_init          # Initial temperature anomaly (T_0)
-  co2_conc_preind <- parameters$co2_conc_preind  # Pre-industrial CO2 concentration (c0)
-  co2_target_2100 <- parameters$co2_target_2100  # Target CO2 concentration in 2100
-  time_step <- parameters$time_step          # Time step (dt)
-  exp_mitig <- parameters$exp_mitig          # Mitigation exponent (q)
-  exp_remov <- parameters$exp_remov          # Removal exponent (r)
-  exp_dam <- parameters$exp_dam              # Damage exponent (s)
-  upd_weight <- parameters$upd_weight        # Update weight
-  trans_cond <- parameters$trans_cond        # Transversality condition (d)
+  # Extract vectors
+  baseline_annual_emissions <- vector_list$baseline_annual_emisions
+  qty_mitig <- vector_list$qty_mitig
+  qty_remov <- vector_list$qty_remov
+  cumulative_emissions <- vector_list$cumulative_emissions
+  temperature_anomaly <- vector_list$temperature_anomaly
   
   # Setup logging
   using_log <- !is.null(log_file)
@@ -208,12 +233,11 @@ forward_backward_sweep <- function(emissions_df,
   log_message("Starting forward-backward sweep simulation")
   log_message(paste("Parameters:",
                     "\ntcre:", tcre,
-                    "\ncost_mitig:", cost_mitig,
-                    "\ncost_remov:", cost_remov,
+                    "\ncost_mitig:", cost_mitig_unit,
+                    "\ncost_remov:", cost_remov_unit,
                     "\necon_dam_pct:", econ_dam_pct,
                     "\ndisc_rate:", disc_rate,
-                    "\ntemp_init:", temp_init,
-                    "\nco2_target_2100:", co2_target_2100))
+                    "\ntemp_init:", clim_temp_init))
   
   # Initialize simulation constants
   dt <- time_step
