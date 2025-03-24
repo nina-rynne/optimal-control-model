@@ -58,11 +58,16 @@ initialize_optimal_control <- function(emissions_data,economic_data, params, sce
   residual_damage <- rep(NA, n_years)
   total_cost <- rep(NA, n_years)
   
+  # Gross World Product
+  baseline_annual_gwp <- economic_data %>%
+    filter(Scenario == scenario) %>%
+    pull(Value)
+  
   # Initial cost calculation
   mitigation_cost[1] <- cost_mitig_unit * mitigation_amount[1]^exp_mitig * exp(-disc_rate * years_rel[1])
   removal_cost[1] <- cost_remov_unit * removal_amount[1]^exp_remov * exp(-disc_rate * years_rel[1])
   ##### FIX NEEDED HERE. ADD GWP
-  residual_damage[1] <- econ_dam_pct * temperature_anomaly[1]^exp_dam * exp(-disc_rate * years_rel[1])
+  residual_damage[1] <- (econ_dam_pct * baseline_annual_gwp[1]) * temperature_anomaly[1]^exp_dam * exp(-disc_rate * years_rel[1])
   total_cost[1] <- mitigation_cost[1] + removal_cost[1] + residual_damage[1]
   
   return(list(
@@ -94,6 +99,7 @@ initialize_optimal_control <- function(emissions_data,economic_data, params, sce
     adjoint_var = adjoint_var,
     
     # Cost components
+    baseline_annual_gwp = baseline_annual_gwp,
     mitigation_cost = mitigation_cost,
     removal_cost = removal_cost,
     climate_damage = climate_damage,
@@ -103,7 +109,7 @@ initialize_optimal_control <- function(emissions_data,economic_data, params, sce
     temp_init = temp_init,
     tcre = tcre,
     cost_mitig_unit = cost_mitig_unit,
-    cost_remov = cost_remov,
+    cost_remov_unit = cost_remov_unit,
     dam_const = dam_const,
     disc_rate = disc_rate,
     exp_mitig = exp_mitig,
@@ -154,6 +160,27 @@ forward_sweep <- function(model) {
   return(model)
 }
 
+###### FORWARD SWEEP VERSION 2 (MY VERSION)
+
+forward_sweep <- function(model){
+  
+  # Extract required variables
+  n_years <- model$n_years
+  baseline_annual_emissions <- model$baseline_annual_emissions
+  baseline_annual_gwp <- model$baseline_annual_gwp
+  cumulative_emissions <- model$cumulative_emissions
+  mitigation_amount <- model$mitigation_amount
+  removal_amount <- model$removal_amount
+  temp_init <- model$temp_init
+  tcre <- model$tcre
+  
+  # Forward integration of emissions and temperature
+  for (i in 2:n_years) {
+    # Calculate net emissions rate (could be negative with CDR)
+    annual_net_emissions <- baseline_annual_emissions[i-1] - mitigation_amount[i-1] - removal_amount[i-1]
+  }
+  
+}
 
 ###### BACKWARD SWEEP
 
@@ -215,8 +242,8 @@ update_controls <- function(model) {
   disc_rate <- model$disc_rate
   
   # Extract cost parameters and exponents
-  cost_mitig <- model$cost_mitig
-  cost_remov <- model$cost_remov
+  cost_mitig_unit <- model$cost_mitig_unit
+  cost_remov_unit <- model$cost_remov_unit
   exp_mitig <- model$exp_mitig
   exp_remov <- model$exp_remov
   upd_weight <- model$upd_weight
@@ -227,7 +254,7 @@ update_controls <- function(model) {
   
   # Update mitigation control based on optimality condition
   # This comes from solving ∂H/∂u_m = 0 for u_m
-  new_mitigation <- (adjoint_var/(exp_mitig*cost_mitig) * exp(disc_rate*years_rel))^(1/(exp_mitig-1))
+  new_mitigation <- (adjoint_var/(exp_mitig*cost_mitig_unit) * exp(disc_rate*years_rel))^(1/(exp_mitig-1))
   
   # Apply bounds to mitigation (can't mitigate more than baseline emissions)
   new_mitigation <- pmin(new_mitigation, baseline_annual_emissions)  # Upper bound

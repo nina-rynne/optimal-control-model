@@ -84,6 +84,72 @@ write_log <- function(log_file, message, include_timestamp = FALSE) {
   cat(paste0(message, "\n"), file = log_file, append = TRUE)
 }
 
+#' @title Create Vector List for Optimal Control
+#' @description 
+#' This function
+#' creates and initialises all the vectors required for the optimal control solution 
+#' function.
+#' 
+#' @param parameter_df Dataframe containing parameters from LHS (experimental_design.R) 
+#' and the fixed model and algorithm parameters (model_parameters.R). 
+#' @param emissions_df Data frame containing emissions scenario data by year
+#' 
+
+create_vector_list <- function(parameter_df,
+                               emissions_df,
+                               economic_df,
+                               scenario){
+  # Time setup
+  years <- unique(emissions_df$Year) # to avoid getting duplicate years
+  years_rel <- years - min(years)
+  n_years <- length(years)
+  
+  # State variables
+  # numeric vector containing the yearly baseline CO2 emissions from IPCC scenarios
+  baseline_annual_emissions <- emissions_df %>%
+    filter(Scenario == scenario) %>%
+    pull(Value) # annual emissions for chosen scenario
+  # numeric vector filled with NA values. updated during forward sweep.
+  temperature_anomaly <- rep(NA, n_years)
+  # numeric vector to track cumulative CO2 emissions (after mit and CDR). updated during forward sweep.
+  cumulative_emissions <- rep(0, n_years)
+  
+  # Initial state
+  cumulative_emissions[1] <- baseline_annual_emissions[1]
+  temperature_anomaly[1] <- temp_init + tcre * cumulative_emissions[1]
+  
+  # Control variables with bounds
+  # numeric vector of mitigation control at each time step, initialised to 0
+  mitigation_amount <- rep(0, n_years)
+  # numeric vector of CDR control at each time step, initialised to 0
+  removal_amount <- rep(0, n_years)
+  mitigation_max <- baseline_annual_emissions
+  # note: all other min/max values are single parameters, stored in parameter_df
+  
+  # Adjoint variable
+  # numeric vector of adjoint variable, initialised to 0
+  adjoint_var <- rep(0, n_years)
+  adjoint_var[n_years] <- trans_cond  # Set Terminal condition for final value of lambda
+  
+  # Cost components
+  mitigation_cost <- rep(NA, n_years)
+  removal_cost <- rep(NA, n_years)
+  residual_damage <- rep(NA, n_years)
+  total_cost <- rep(NA, n_years)
+  
+  # Gross World Product
+  baseline_annual_gwp <- economic_df %>%
+    filter(Scenario == scenario) %>%
+    pull(Value)
+  
+  # Cumulative Cost components, initialised to NA
+  cost_mitig_cumul <- rep(NA, n_years)
+  cost_remov_cumul <- rep(NA, n_years)
+  cost_resid_cumul <- rep(NA, n_years)
+  cost_total_cumul <- rep(NA, n_years)
+  
+}
+
 #' @title Forward-Backward Sweep for Optimal Control
 #' @description
 #' Implements the forward-backward sweep method for finding optimal control
@@ -106,12 +172,12 @@ write_log <- function(log_file, message, include_timestamp = FALSE) {
 #' result <- forward_backward_sweep(emissions_df, parameters, gwp_df, 
 #'                                 log_file, max_iterations = 5000)
 #'
-forward_backward_sweep <- function(emissions_df, 
-                                   parameters,
-                                   gwp_df = NULL,
-                                   log_file = NULL,
-                                   max_iterations = 10000,
-                                   convergence_tol = 0.001) {
+forward_backward_sweep <- function(emissions_df,
+                                   economic_df,
+                                   parameter_df,
+                                   vector_list,
+                                   log_file = NULL
+                                   ) {
   
   # Extract parameters
   tcre <- parameters$tcre                  # Transient climate response to emissions (gam)

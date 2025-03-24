@@ -112,7 +112,7 @@ test_that("generate_lhs_samples produces expected outputs", {
   expect_equal(ncol(result_default), 5)   # There should be 5 parameters
   
   # Check parameter names
-  expected_params <- c("tcre", "cost_mitig", "cost_remov", "econ_dam_pct", "disc_rate")
+  expected_params <- c("tcre", "cost_mitig_unit", "cost_remov_unit", "econ_dam_pct", "disc_rate")
   expect_equal(names(result_default), expected_params)
   
   # Test 2: Parameter values are within expected ranges
@@ -247,8 +247,7 @@ test_that("get_fixed_parameters loads parameters correctly", {
   expect_true(is.list(params))
   
   # Check if specific parameters are present with correct values
-  expect_equal(params$temp_init, 1.2)
-  expect_equal(params$co2_conc_preind, 280)
+  expect_equal(params$clim_temp_init, 1.2)
   expect_equal(params$exp_mitig, 2)
   
   # Print success message
@@ -284,8 +283,8 @@ test_that("add_fixed_parameters combines variable and fixed parameters", {
   # Check if both variable and fixed parameters are present
   # Using actual column names from default_samples
   expect_true("tcre" %in% names(combined_params))
-  expect_true("cost_mitig" %in% names(combined_params))
-  expect_true("temp_init" %in% names(combined_params))
+  expect_true("cost_mitig_unit" %in% names(combined_params))
+  expect_true("clim_temp_init" %in% names(combined_params))
   
   # Check if the number of rows matches the input
   expect_equal(nrow(combined_params), nrow(default_samples))

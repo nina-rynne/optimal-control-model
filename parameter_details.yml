@@ -1,55 +1,33 @@
-# Fixed Model Parameters for Climate Optimal Control
+# Model Parameters for Climate Optimal Control
 # Last updated: March 2025
 
-# This document contains the model parameters that are not part of the sensitivity
-# analysis, but can still be changed if needed.
+# === Climate/Physical Variables ===
 
-# === Physical Constants ===
-# These parameters are based on established scientific constants
-
-# Initial global temperature anomaly (°C above pre-industrial, at 2020)
-temp_init: 1.2
-  
-# Preindustrial CO2 concentration (ppm)
-co2_conc_preind: 280
-  
-# === Experimental Parameters ===
-# These parameters can be adjusted depending on the constraints of the optimal control problem
-
-# CO2 emissions volume at 2100 to reach 1.5°C target (based on TCRE of 0.45)
-co2_target_2100: 700
+co2_conc_preind: 280 # Preindustrial CO2 concentration (ppm)
+co2_target_2100: 700 # CO2 emissions volume at 2100 to reach 1.5°C target (based on TCRE of 0.45)
+clim_temp_init: 1.2 # Initial global temperature anomaly (°C above pre-industrial, at 2020)
+# clim_tcre: sampled in experimental_design.R
 
 # === Economic Parameters ===
-# No fixed economic parameters.
-# These are all calculated in experimental_design.R
-# These are all part of the latin hypercube sampling and sensitivity analysis
+
+# econ_dam_pct: sampled in experimental_design.R
+# disc_rate: sampled in experimental_design.R
+# cost_mitig_unit: sampled in experimental_design.R
+# cost_remov_unit: sampled in experimental_design.R
 
 # === Model Configuration ===
 # These parameters control model behavior rather than physical properties
 
-# Time step for model integration (years)
-time_step: 1
-  
-# Number of time periods to calculate
-# n_periods: 100
-  
-# Mitigation cost exponent
-exp_mitig: 2
-  
-# CDR cost exponent
-exp_remov: 2
-  
-# Residual climate damage exponent
-exp_dam: 2
-  
-# Forward-backward sweep update weight
-upd_weight: 0.01
-  
-# Transversality condition (default = 0, used when no final temp target)
-trans_cond: 0
+exp_mitig: 2 # Mitigation cost exponent
+exp_remov: 2 # CDR cost exponent
+exp_temp_anom: 2 # Temperature anomaly exponent
 
-# Initial lower transversality bound for shooting method
-trans_low: 0
-  
-# Initial upper transversality bound for shooting method
-trans_high: 5
+# === Algorithm Settings ===
+
+time_step: 1 # Time step for model integration (years)
+convergence_tolerance: 0.001 # Solution convergence
+max_iterations: 1e4 # maximum iterations to run in optimal control solution loop
+upd_weight: 0.01 # Forward-backward sweep update weight
+trans_cond: 0 # Transversality condition (default = 0, used when no final temp target)
+trans_low: 0 # Initial lower transversality bound for shooting method
+trans_high: 5 # Initial upper transversality bound for shooting method
