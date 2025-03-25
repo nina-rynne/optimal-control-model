@@ -22,12 +22,8 @@ exp_mitig: 2 # Mitigation cost exponent
 exp_remov: 2 # CDR cost exponent
 exp_temp_anom: 2 # Temperature anomaly exponent
 
-# === Algorithm Settings ===
+# === Tranversality Conditions ===
 
-time_step: 1 # Time step for model integration (years)
-convergence_tolerance: 0.001 # Solution convergence
-max_iterations: 1e4 # maximum iterations to run in optimal control solution loop
-upd_weight: 0.01 # Forward-backward sweep update weight
 trans_cond: 0 # Transversality condition (default = 0, used when no final temp target)
 trans_low: 0 # Initial lower transversality bound for shooting method
 trans_high: 5 # Initial upper transversality bound for shooting method

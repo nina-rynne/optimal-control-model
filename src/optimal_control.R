@@ -23,11 +23,9 @@
 #' @repository https://github.com/nina-rynne/optimal-control-model
 #'
 #' @references
-#' - Lenhart, S., & Workman, J. T. (2007). Optimal control applied to biological models. CRC press.
-#' - Nordhaus, W. D. (2017). Revisiting the social cost of carbon. Proceedings of the National Academy of Sciences.
 #'
 #' @dependencies
-#' Required packages: dplyr, tidyr
+#' Required packages: dplyr, tidyr, here
 #' 
 
 # Load required packages
@@ -104,6 +102,11 @@ create_vector_list <- function(parameter_df,
   years_rel <- years - min(years)
   n_years <- length(years)
   
+  # Used parameter variables
+  clim_temp_init <- parameter_df$clim_temp_init
+  tcre <- parameter_df$tcre
+  trans_cond <- parameter_df$trans_cond
+  
   # State variables
   # numeric vector containing the yearly baseline CO2 emissions from IPCC scenarios
   baseline_annual_emissions <- emissions_df %>%
@@ -116,7 +119,7 @@ create_vector_list <- function(parameter_df,
   
   # Initial state
   cumulative_emissions[1] <- baseline_annual_emissions[1]
-  temperature_anomaly[1] <- temp_init + tcre * cumulative_emissions[1]
+  temperature_anomaly[1] <- clim_temp_init + tcre * cumulative_emissions[1]
   
   # Control variables with bounds
   # numeric vector of mitigation control at each time step, initialised to 0
@@ -193,24 +196,22 @@ create_vector_list <- function(parameter_df,
 #' result <- forward_backward_sweep(emissions_df, parameters, gwp_df, 
 #'                                 log_file, max_iterations = 5000)
 #'
-forward_backward_sweep <- function(emissions_df,
-                                   economic_df,
-                                   parameter_df,
+forward_backward_sweep <- function(parameter_df,
                                    vector_list,
                                    log_file = NULL
                                    ) {
   
   # Extract parameters for readability
   n_years <- vector_list$n_years
-  tcre <- parameters$tcre                  # Transient climate response to emissions (gam)
-  cost_mitig_unit <- parameters$cost_mitig # Cost of mitigation (F_m)
-  cost_remov_unit <- parameters$cost_remov # Cost of removal (F_r)
-  econ_dam_pct <- parameters$econ_dam_pct  # Economic damage coefficient
-  disc_rate <- parameters$disc_rate        # Discount rate (del)
-  clim_temp_init <- parameters$temp_init   # Initial temperature anomaly (T_0)
-  time_step <- parameters$time_step        # Time step (dt)
-  exp_mitig <- parameters$exp_mitig        # Mitigation exponent (q)
-  exp_remov <- parameters$exp_remov        # Removal exponent (r)
+  tcre <- parameter_df$tcre                  # Transient climate response to emissions (gam)
+  cost_mitig_unit <- parameter_df$cost_mitig # Cost of mitigation (F_m)
+  cost_remov_unit <- parameter_df$cost_remov # Cost of removal (F_r)
+  econ_dam_pct <- parameter_df$econ_dam_pct  # Economic damage coefficient
+  disc_rate <- parameter_df$disc_rate        # Discount rate (del)
+  clim_temp_init <- parameter_df$temp_init   # Initial temperature anomaly (T_0)
+  time_step <- parameter_df$time_step        # Time step (dt)
+  exp_mitig <- parameter_df$exp_mitig        # Mitigation exponent (q)
+  exp_remov <- parameter_df$exp_remov        # Removal exponent (r)
   exp_dam <- parameters$exp_dam            # Damage exponent (s)
   upd_weight <- parameters$upd_weight      # Update weight
   trans_cond <- parameters$trans_cond      # Transversality condition (d)
