@@ -1,0 +1,123 @@
+---
+title: "optimal_control_workflow"
+output: html_document
+date: "2025-03-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#' @title Full Workflow for Climate Optimal Control
+#' @description
+#' This script contains function calls to run a complete optimal control solver,
+#' using a mult-scenario parameter file, for the optimal control of the temperature 
+#' overshoot model.
+#'
+#' @author Nina Rynne
+#' @project Optimal Control of Temperature Overshoot
+#' @date March 2025
+#' @license MIT (or whatever license you plan to use)
+#' @version 0.1.0
+#'
+#' @citation If published, include how to cite this work, e.g.:
+#' Rynne, N. (2025). Optimal control methods for climate temperature overshoot.
+#' Journal of Climate Modeling, XX(X), XXX-XXX. doi:XX.XXXX/XXXXX
+#'
+#' @funding Include any grant or funding information here
+#'
+#' @collaborators List any collaborators or contributors
+#'
+#' @contact nina.rynne@griffithuni.edu.au
+#'
+#' @repository https://github.com/nina-rynne/optimal-control-model
+#' 
+#' @references
+#' 
+#'OTHER DATA TO CONSIDER INCLUDING
+#'- data sources (version numbers, DOIs, access dates)
+#'- methods documentation (descriptions of mathematical methods, interpolation techniques or assumptions)
+#'- validation info (how was processing validated or verified)
+#'- unit tests
+#'- change log (document version changes over time)
+#'- reproducibility notes (info on software versions and package dependencies)
+#'- ORCID
+#'- data dictionary (define what each variable represents, its units and valid ranges)
+#'
+#'
+#' This module calls the following key functions in order:
+#' - import_ssp_emissions: Imports emissions scenario data from SSP sources
+#' - import_ssp_economic: Imports economic data from SSP sources
+#' - interpolate_ssp_emissions: Creates a complete emissions time series with interpolated values
+#' - interpolate_ssp_economic: Creates a complete economic data time series with interpolated values
+#' - generate_lhs_samples: Creates a data frame of parameter scenarios using latin hypercube sampling
+#' - get_fixed_parameters: Imports fixed
+#' 
+#' Each function includes detailed documentation on parameters and returns.
+#' The functions are designed to be modular and reusable in different contexts
+#' within the optimal control framework.
+#'
+```
+
+```{r libraries}
+
+# Load required libraries
+library(here)
+
+```
+
+```{r data_preparation_call}
+
+# Source the data preparation functions
+source(here::here("src", "data_preparation.R"))
+
+# Import emissions data - just pass the filename, path handling is in the import function
+emissions_imported <- import_ssp_emissions("emissions.csv")
+cat("Imported emissions data dimensions:", dim(emissions_imported)[1], "rows,", 
+    dim(emissions_imported)[2], "columns\n")
+
+# Import economic data - just pass the filename, path handling is in the import function
+economic_imported <- import_ssp_economic("gwp.csv")
+cat("Imported economic data dimensions:", dim(economic_imported)[1], "rows,", 
+    dim(economic_imported)[2], "columns\n")
+
+# Interpolate emissions with annual time step
+emissions_df <- interpolate_ssp_emissions(
+  emissions_df = emissions_imported,
+  dt = 1,
+  start_year = 2020,
+  end_year = 2100
+)
+
+# Interpolate GWP with annual time step
+economic_df <- interpolate_ssp_economic(
+  economic_df = economic_imported,
+  dt = 1,
+  start_year = 2020,
+  end_year = 2100
+)
+
+```
+
+```{r latin_hypercube_sampling_call}
+
+source(here::here("src", "latin_hypercube_sampling.R"))
+
+parameter_df <- generate_lhs_samples()
+
+
+```
+
+```{r model_parameters_call}
+
+source(here::here("src", "model_parameters.R"))
+
+parameter_import <- here::here("parameter_details.yml")
+
+parameter_df <- get_fixed_parameters(config_file = parameter_import)
+
+parameter_df <- add_fixed_parameters(parameter_df)
+
+
+```
+
+```{r optimal_control_call}

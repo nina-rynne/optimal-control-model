@@ -22,32 +22,13 @@
 #' @repository https://github.com/nina-rynne/optimal-control-model
 #' 
 #' @references
-#' Riahi et al. (2017). The Shared Socioeconomic Pathways and their energy, 
-#' land use, and greenhouse gas emissions implications: An overview, Global Environmental Change
-#'  – processed by Our World in Data
-#'  - https://ourworldindata.org/explorers/ipcc-scenarios
 #'
-#'OTHER DATA TO CONSIDER INCLUDING
-#'- data sources (version numbers, DOIs, access dates)
-#'- methods documentation (descriptions of mathematical methods, interpolation techniques or assumptions)
-#'- validation info (how was processing validated or verified)
-#'- unit tests
-#'- change log (document version changes over time)
-#'- reproducibility notes (info on software versions and package dependencies)
-#'- ORCID
-#'- data dictionary (define what each variable represents, its units and valid ranges)
-#'
-
 #' This module provides the following key functions:
 #' - import_ssp_emissions: Imports emissions scenario data from SSP sources
 #' - import_ssp_economic: Imports economic data from SSP sources
 #' - interpolate_ssp_emissions: Creates a complete emissions time series with interpolated values
 #' - interpolate_ssp_economic: Creates a complete economic data time series with interpolated values
 #'
-
-#' Each function includes detailed documentation on parameters and returns.
-#' The functions are designed to be modular and reusable in different contexts
-#' within the optimal control framework.
 
 # Load required packages for data manipulation and CSV handling
 library(dplyr)    # For data manipulation and filtering

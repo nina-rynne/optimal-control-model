@@ -23,11 +23,12 @@
 #' @repository https://github.com/nina-rynne/optimal-control-model
 #'
 #' @references
-#' - 
-#'
-#' @dependencies
-#' Required packages: yaml, here
 #' 
+#' This module provides the following key functions:
+#' - get_fixed_parameters: Loads the fixed parameters from a YAML configuration file.
+#' - add_fixed_parameters: Takes a dataframe of variable parameters and adds columns 
+#'                          for fixed parameters loaded from the YAML configuration
+#'  
 
 # Load required libraries
 library(here)  # file management
