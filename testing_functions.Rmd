@@ -56,28 +56,28 @@ print(head(economic_imported, 3))
 cat("\nTesting interpolate_ssp_emissions function...\n")
 
 # Test with annual time step
-emissions_interpolated <- interpolate_ssp_emissions(
+emissions_df <- interpolate_ssp_emissions(
   emissions_df = emissions_imported,
   dt = 1,
   start_year = 2020,
   end_year = 2100
 )
-cat("Interpolated emissions data dimensions:", dim(emissions_interpolated)[1], "rows,", 
-    dim(emissions_interpolated)[2], "columns\n")
+cat("Interpolated emissions data dimensions:", dim(emissions_df)[1], "rows,", 
+    dim(emissions_df)[2], "columns\n")
 
 # Test interpolate_ssp_economic function
 # ------------------------------------
 cat("\nTesting interpolate_ssp_economic function...\n")
 
 # Test with annual time step
-economic_interpolated <- interpolate_ssp_economic(
+economic_df <- interpolate_ssp_economic(
   economic_df = economic_imported,
   dt = 1,
   start_year = 2020,
   end_year = 2100
 )
-cat("Interpolated economic data dimensions:", dim(economic_interpolated)[1], "rows,", 
-    dim(economic_interpolated)[2], "columns\n")
+cat("Interpolated economic data dimensions:", dim(economic_df)[1], "rows,", 
+    dim(economic_df)[2], "columns\n")
 
 cat("\nTest script completed.\n")
 
@@ -92,12 +92,12 @@ source("src/experimental_design.R")
 
 # Run the function with default parameters and display the results
 cat("\n=== SAMPLE OUTPUT WITH DEFAULT PARAMETERS ===\n")
-default_samples <- generate_lhs_samples()
+parameter_df <- generate_lhs_samples()
 cat("\nFirst 10 rows of the generated samples:\n")
-print(head(default_samples, 10))
+print(head(parameter_df, 10))
 
 cat("\nSummary statistics of the generated samples:\n")
-print(summary(default_samples))
+print(summary(parameter_df))
 
 # Define tests
 test_that("generate_lhs_samples produces expected outputs", {
@@ -117,7 +117,7 @@ test_that("generate_lhs_samples produces expected outputs", {
   
   # Test 2: Parameter values are within expected ranges
   cat("Test 2: Parameter values are within expected ranges\n")
-  expect_true(all(result_default$tcre >= 0.27 & result_default$tcre <= 0.63))
+  expect_true(all(result_default$tcre >= 0.0027 & result_default$tcre <= 0.0063))
   expect_true(all(result_default$cost_mitig >= 200 & result_default$cost_mitig <= 1000))
   expect_true(all(result_default$cost_remov >= 5 & result_default$cost_remov <= 1000))
   expect_true(all(result_default$econ_dam_pct >= 0.05 & result_default$econ_dam_pct <= 0.2))
@@ -273,7 +273,7 @@ test_that("get_fixed_parameters handles missing file gracefully", {
 test_that("add_fixed_parameters combines variable and fixed parameters", {
   # Add fixed parameters to default_samples
   combined_params <- add_fixed_parameters(
-    param_df = default_samples,
+    param_df = parameter_df,
     config_file = param_file
   )
   
@@ -287,7 +287,7 @@ test_that("add_fixed_parameters combines variable and fixed parameters", {
   expect_true("clim_temp_init" %in% names(combined_params))
   
   # Check if the number of rows matches the input
-  expect_equal(nrow(combined_params), nrow(default_samples))
+  expect_equal(nrow(combined_params), nrow(parameter_df))
   
   cat("✓ add_fixed_parameters successfully combines variable and fixed parameters\n")
 })
@@ -296,7 +296,7 @@ test_that("add_fixed_parameters combines variable and fixed parameters", {
 test_that("add_fixed_parameters respects append_position", {
   # Test "start" position
   start_params <- add_fixed_parameters(
-    param_df = default_samples,
+    param_df = parameter_df,
     append_position = "start",
     config_file = param_file
   )
@@ -307,7 +307,7 @@ test_that("add_fixed_parameters respects append_position", {
   
   # Test "alphabetical" position
   alpha_params <- add_fixed_parameters(
-    param_df = default_samples,
+    param_df = parameter_df,
     append_position = "alphabetical",
     config_file = param_file
   )
@@ -322,7 +322,7 @@ test_that("add_fixed_parameters respects append_position", {
 test_that("add_fixed_parameters can exclude specified parameters", {
   # Exclude some parameters
   excluded_params <- add_fixed_parameters(
-    param_df = default_samples,
+    param_df = parameter_df,
     config_file = param_file,
     exclude_params = c("temp_init", "exp_mitig")
   )
@@ -337,7 +337,7 @@ test_that("add_fixed_parameters can exclude specified parameters", {
 # Test 8: Check metadata attributes
 test_that("add_fixed_parameters adds appropriate metadata", {
   result <- add_fixed_parameters(
-    param_df = default_samples,
+    param_df = parameter_df,
     config_file = param_file
   )
   
@@ -354,12 +354,12 @@ test_that("add_fixed_parameters adds appropriate metadata", {
 
 # Test 9: Just run get_fixed_parameters with default options and print the result
 cat("Test 9: Running get_fixed_parameters() with default options:\n")
-default_params <- get_fixed_parameters()
+parameter_df <- get_fixed_parameters()
 cat("\nStructure of the returned parameters:\n")
-str(default_params)
+str(parameter_df)
 cat("\nFirst few parameters:\n")
-if (length(default_params) > 0) {
-  head_params <- head(default_params, 5)
+if (length(parameter_df) > 0) {
+  head_params <- head(parameter_df, 5)
   for (name in names(head_params)) {
     cat(sprintf("  %s: %s\n", name, as.character(head_params[[name]])))
   }
@@ -369,11 +369,11 @@ if (length(default_params) > 0) {
 
 # Test 10: Run add_fixed_parameters with default options and print the result
 cat("\nTest 10: Running add_fixed_parameters() with default options:\n")
-combined_default <- add_fixed_parameters(default_samples)
+parameter_df <- add_fixed_parameters(parameter_df)
 cat("\nStructure of the returned dataframe:\n")
-str(combined_default)
+str(parameter_df)
 cat("\nColumn names in the combined dataframe:\n")
-cat(paste(names(combined_default), collapse = ", "), "\n")
+cat(paste(names(parameter_df), collapse = ", "), "\n")
 cat("\nFirst few rows of the combined dataframe:\n")
 print(head(combined_default, 3))
 

@@ -174,6 +174,95 @@ create_vector_list <- function(parameter_df,
   ))
 }
 
+
+#' @title Run Forward-Backward Sweep for Multiple Parameter Sets
+#' @description
+#' Applies the forward-backward sweep method across multiple parameter combinations.
+#' This function iterates through each row of a parameter dataframe, running the
+#' optimal control algorithm for each set of parameters and collecting the results.
+#' 
+#' @param parameter_df Data frame containing multiple sets of model parameters (one per row)
+#' @param vector_list List of vectors required for optimal control calculation
+#' @param save_intermediate Logical; whether to save intermediate results (default: FALSE)
+#' @param verbose Logical; whether to print progress messages (default: FALSE)
+#' @return List of results, with each element containing the complete optimal control solution
+#'         for a specific parameter set. Each result is tagged with a unique run_id.
+#' @examples
+#' # Generate parameter sets using Latin Hypercube Sampling
+#' param_sets <- generate_lhs_samples(n_samples = 10)
+#' # Run forward-backward sweep for all parameter sets
+#' all_results <- run_multiple_sweeps(param_sets, vector_list)
+#'
+
+run_multiple_sweeps <- function(parameter_df, 
+                                vector_list,
+                                save_intermediate = FALSE,
+                                verbose = FALSE) {
+  
+  # Add run_id if not already present
+  if(!"run_id" %in% names(parameter_df)) {
+    parameter_df$run_id <- paste0("run_", seq_len(nrow(parameter_df)))
+  }
+  
+  # Use lapply to process each parameter set
+  results_list <- lapply(seq_len(nrow(parameter_df)), function(i) {
+    # Extract current parameter set
+    current_params <- parameter_df[i, , drop = FALSE]
+    
+    # Print progress if verbose is TRUE
+    if(verbose) {
+      cat("Processing parameter set", i, "of", nrow(parameter_df), 
+          "(", parameter_df$run_id[i], ")\n")
+    }
+    
+    # Run forward_backward_sweep
+    result <- forward_backward_sweep(current_params, vector_list)
+    
+    # Add run_id to result
+    result$run_id <- parameter_df$run_id[i]
+    
+    # Optionally save intermediate result
+    if(save_intermediate) {
+      saveRDS(result, file = paste0("result_", parameter_df$run_id[i], ".rds"))
+    }
+    
+    return(result)
+  })
+  
+  # Name each element in results_list according to run_id
+  names(results_list) <- parameter_df$run_id
+  
+  return(results_list)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #' @title Forward-Backward Sweep for Optimal Control
 #' @description
 #' Implements the forward-backward sweep method for finding optimal control

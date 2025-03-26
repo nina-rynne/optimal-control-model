@@ -103,7 +103,7 @@ forward_backward_sweep <- function(parameter_df,
   
   ### ---------- BEGIN ITERATION LOOP ------------ ###
   
-  while(min_convergence < 0 & iteration < n){
+  while(min_convergence < 0 & iteration < max_iterations){
     
     # Save control variables, cumulative emissions and adjoint variable for
     # convergence testing in last step
@@ -115,7 +115,7 @@ forward_backward_sweep <- function(parameter_df,
     ### ---------- FORWARD SWEEP ------------ ###
     for (i in 2:n_years) {
       # Calculate net emissions rate (could be negative with CDR)
-      annual_net_emissions <- baseline_annual_emissions[i-1] - mitigation_amount[i-1] - removal_amount[i-1]
+      annual_net_emissions <- baseline_annual_emissions[i-1] - qty_mitig[i-1] - qty_remov[i-1]
     
       # Update cumulative emissions
       cumulative_emissions[i] <- cumulative_emissions[i-1] + annual_net_emissions
