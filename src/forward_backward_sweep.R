@@ -41,6 +41,7 @@ library(here)     # For file path management
 #' 
 #' @param parameter_df Data frame containing model parameters
 #' @param vector_list List of vectors required for optimal control calculation
+#' @param trans_cond Transversality condition value. Default = 0
 #' @param log_file Optional log file path for detailed logging
 #' @return List of vectors with optimal control solution and all state variables
 #' @examples
@@ -49,7 +50,8 @@ library(here)     # For file path management
 #'
 
 forward_backward_sweep <- function(parameter_df,
-                                   vector_list) {
+                                   vector_list,
+                                   trans_cond = 0) {
   # Algorithm settings
   time_step <- 1
   convergence_tolerance <- 0.001
@@ -74,7 +76,6 @@ forward_backward_sweep <- function(parameter_df,
   exp_mitig <- parameter_df$exp_mitig
   exp_remov <- parameter_df$exp_remov
   exp_temp_anom <- parameter_df$exp_temp_anom
-  trans_cond <- parameter_df$trans_cond
   
   # Extract required vectors from vector_list
   # Time variables

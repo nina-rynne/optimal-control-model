@@ -21,9 +21,3 @@ clim_temp_init: 1.2 # Initial global temperature anomaly (°C above pre-industri
 exp_mitig: 2 # Mitigation cost exponent
 exp_remov: 2 # CDR cost exponent
 exp_temp_anom: 2 # Temperature anomaly exponent
-
-# === Tranversality Conditions ===
-
-trans_cond: 0 # Transversality condition (default = 0, used when no final temp target)
-trans_low: 0 # Initial lower transversality bound for shooting method
-trans_high: 5 # Initial upper transversality bound for shooting method
