@@ -103,7 +103,7 @@ economic_df <- interpolate_ssp_economic(
 
 source(here::here("src", "latin_hypercube_sampling.R"))
 
-lhs_parameter_df <- generate_lhs_samples(5)
+lhs_parameter_df <- generate_lhs_samples(2)
 
 
 ```
@@ -127,7 +127,19 @@ source(here::here("src", "shooting_method.R"))
 scenario <- "SSP3-Baseline"
 
 # Call optimal control solution method
-oc_solution <- run_multiple_sweeps_parallel(parameter_df, emissions_df, economic_df, scenario)
+oc_solution <- run_multiple_sweeps(parameter_df, emissions_df, economic_df, scenario)
+
+# Save optimal control solution data
+save_timestamped_solution(oc_solution, "oc_solution", scenario)
+
+```
+
+```{r visualisation_call}
+
+source(here::here("src", "visualisation.R"))
+
+create_temperature_plot(oc_solution)
+create_emissions_plot(oc_solution)
 
 ```
 

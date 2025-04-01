@@ -229,8 +229,8 @@ run_multiple_sweeps <- function(parameter_df,
     )
     
     # Run either forward_backward_sweep or shooting_method. Use only one.
-    #result <- forward_backward_sweep(current_params, vector_list)
-    result <- shooting_method(current_params, vector_list)
+    result <- forward_backward_sweep(current_params, vector_list)
+    #result <- shooting_method(current_params, vector_list)
     
     # Add run_id to result
     result$run_id <- run_id
@@ -356,5 +356,53 @@ run_multiple_sweeps_parallel <- function(parameter_df,
   names(results_list) <- paste0("run_", timestamp, "_", seq_len(nrow(parameter_df)))
   
   return(results_list)
+}
+
+
+#' Save solution with timestamped filename
+#'
+#' This function takes an existing solution (typically a list), creates a
+#' timestamped filename, saves it to a fixed output directory, and
+#' optionally assigns it to a timestamped variable in the global environment.
+#'
+#' @param solution The R object to save
+#' @param prefix A prefix for the filename (e.g., "oc_solution")
+#' @param scenario Scenario name to include in the filename
+#' @param assign_global Logical; whether to assign the solution to a global variable with the timestamped name
+#'
+#' @return The full path to the saved file (invisibly)
+#' @export
+#'
+#' @examples
+#' # save_timestamped_solution(oc_solution, "oc_solution", "SSP3-Baseline")
+#'
+
+save_timestamped_solution <- function(solution, prefix, scenario, assign_global = FALSE) {
+  # Set the output directory
+  output_dir <- here::here("output")
+  
+  # Create timestamp for unique filename
+  timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+  solution_name <- paste0(prefix, "_", scenario, "_", timestamp)
+  
+  # Save the solution with the unique name
+  output_file <- file.path(output_dir, paste0(solution_name, ".RData"))
+  
+  # Save the solution object with its original name
+  original_name <- deparse(substitute(solution))
+  temp_env <- new.env()
+  temp_env[[original_name]] <- solution
+  save(list = original_name, envir = temp_env, file = output_file)
+  
+  # Assign the solution to a variable with the unique name in the global environment if requested
+  if (assign_global) {
+    assign(solution_name, solution, envir = .GlobalEnv)
+  }
+  
+  # Print confirmation message
+  cat("Solution saved as:", output_file, "\n")
+  
+  # Return the file path
+  invisible(output_file)
 }
 

@@ -534,6 +534,13 @@ cat("Simulation complete. Results saved to the results and plots directories.\n"
 
 ```
 
+```{r test_shooting_method}
+
+
+
+```
+
+
 
 ```{r not_complete_code, eval=FALSE, include=FALSE}
 
