@@ -62,6 +62,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Load required libraries
 library(here)
+library(dplyr)
 
 ```
 
@@ -102,7 +103,7 @@ economic_df <- interpolate_ssp_economic(
 
 source(here::here("src", "latin_hypercube_sampling.R"))
 
-parameter_df <- generate_lhs_samples()
+lhs_parameter_df <- generate_lhs_samples()
 
 
 ```
@@ -111,13 +112,25 @@ parameter_df <- generate_lhs_samples()
 
 source(here::here("src", "model_parameters.R"))
 
-parameter_import <- here::here("parameter_details.yml")
-
-parameter_df <- get_fixed_parameters(config_file = parameter_import)
-
-parameter_df <- add_fixed_parameters(parameter_df)
+parameter_df <- add_fixed_parameters(lhs_parameter_df)
 
 
 ```
 
 ```{r optimal_control_call}
+
+source(here::here("src", "optimal_control.R"))
+source(here::here("src", "forward_backward_sweep.R"))
+source(here::here("src", "shooting_method.R"))
+
+# Set scenario
+scenario <- "SSP3-Baseline"
+
+# Call optimal control solution method
+oc_solution <- run_multiple_sweeps(parameter_df, emissions_df, economic_df, scenario)
+
+```
+
+
+
+

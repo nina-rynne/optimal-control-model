@@ -48,12 +48,10 @@ library(here)     # For file path management
 shooting_method <- function(parameter_df,
                             vector_list) {
   # Algorithm settings
-  time_step <- 1
   convergence_tolerance <- 0.001
   converged = FALSE
   max_iterations <- 1e4
   iteration <- 0
-  upd_weight <- 0.01
   
   # Extract required variables from parameter_df
   trans_low <- parameter_df$trans_low
@@ -98,7 +96,7 @@ shooting_method <- function(parameter_df,
     
     # Evaluate at new point
     result <- forward_backward_sweep(parameter_df, vector_list, trans_low)
-    emission_gap_low <- tail(result$Cumulative_Emissions, 1) - c_2100
+    emission_gap_low <- tail(result$cumulative_emissions, 1) - co2_target_2100
     
     # Check convergence
     if(abs(emission_gap_low) <= convergence_tolerance || iteration >= max_iterations) {
@@ -106,4 +104,6 @@ shooting_method <- function(parameter_df,
     }
   }
   
+  # Return the final result
+  return(result)
 }
