@@ -105,10 +105,6 @@ create_vector_list <- function(parameter_df,
   economic_filtered <- economic_df %>%
     filter(Scenario == scenario)
   
-  # Check actual counts to diagnose
-  cat("Filtered emissions rows:", nrow(emissions_filtered), "\n")
-  cat("Unique years in filtered emissions:", length(unique(emissions_filtered$Year)), "\n")
-  
   # Time setup
   years <- emissions_filtered %>% 
     arrange(Year) %>%           # Ensure years are in order
@@ -225,7 +221,7 @@ run_multiple_sweeps <- function(parameter_df,
     current_params <- parameter_df[i, , drop = FALSE]
     
     # Create vector list for this specific parameter set
-    current_vector_list <- create_vector_list(
+    vector_list <- create_vector_list(
       parameter_df = current_params,
       emissions_df = emissions_df,
       economic_df = economic_df,
@@ -233,11 +229,14 @@ run_multiple_sweeps <- function(parameter_df,
     )
     
     # Run either forward_backward_sweep or shooting_method. Use only one.
-    result <- forward_backward_sweep(current_params, vector_list)
-    #result <- shooting_method(current_params, vector_list)
+    #result <- forward_backward_sweep(current_params, vector_list)
+    result <- shooting_method(current_params, vector_list)
     
     # Add run_id to result
     result$run_id <- run_id
+    
+    # Add parameters to result
+    result$parameters <- current_params
     
     # Optionally save intermediate result
     if(save_intermediate) {
@@ -246,6 +245,112 @@ run_multiple_sweeps <- function(parameter_df,
     
     return(result)
   })
+  
+  # Name each element in results_list according to run_id
+  names(results_list) <- paste0("run_", timestamp, "_", seq_len(nrow(parameter_df)))
+  
+  return(results_list)
+}
+
+
+#' @title Run Forward-Backward Sweep for Multiple Parameter Sets with Parallel Processing
+#' @description
+#' Applies the forward-backward sweep method across multiple parameter combinations using parallel processing.
+#' This function iterates through each row of a parameter dataframe, running the
+#' optimal control algorithm for each set of parameters and collecting the results.
+#' 
+#' @param parameter_df Data frame containing multiple sets of model parameters (one per row)
+#' @param emissions_df Data frame containing emissions scenario data
+#' @param economic_df Data frame containing economic scenario data
+#' @param scenario String specifying which scenario to use
+#' @param n_cores Number of cores to use for parallel processing (default: detectCores() - 1)
+#' @param save_intermediate Logical; whether to save intermediate results (default: FALSE)
+#' @param verbose Logical; whether to print progress messages (default: FALSE)
+#' @return List of results, with each element containing the complete optimal control solution
+#'         for a specific parameter set. Each result is tagged with a unique run_id.
+#'
+run_multiple_sweeps_parallel <- function(parameter_df, 
+                                         emissions_df,
+                                         economic_df,
+                                         scenario,
+                                         n_cores = NULL,
+                                         save_intermediate = FALSE,
+                                         verbose = FALSE) {
+  
+  # Load required packages for parallel processing
+  library(parallel)
+  library(foreach)
+  library(doParallel)
+  library(iterators)
+  
+  # Determine number of cores to use
+  if (is.null(n_cores)) {
+    n_cores <- max(1, detectCores() - 1)  # Use all cores except one
+  } else {
+    n_cores <- min(n_cores, detectCores())  # Ensure we don't request more cores than available
+  }
+  
+  if (verbose) {
+    cat(sprintf("Running with %d cores\n", n_cores))
+    cat(sprintf("Processing %d parameter sets\n", nrow(parameter_df)))
+  }
+  
+  # Create a timestamp for this batch of runs
+  timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+  
+  # Set up parallel backend
+  cl <- makeCluster(n_cores)
+  registerDoParallel(cl)
+  
+  # Export necessary variables and functions to the cluster
+  clusterExport(cl, varlist = c("create_vector_list", "shooting_method", 
+                                "forward_backward_sweep"), 
+                envir = environment())
+  
+  # Also export packages needed by worker functions
+  clusterEvalQ(cl, {
+    library(dplyr)
+    library(tidyr)
+  })
+  
+  # Use foreach for parallel execution
+  results_list <- foreach(i = seq_len(nrow(parameter_df)), 
+                          .packages = c("dplyr", "tidyr"),
+                          .export = c("create_vector_list", "shooting_method", 
+                                      "forward_backward_sweep")) %dopar% {
+                                        
+                                        # Create a run ID for this iteration
+                                        run_id <- paste0("run_", timestamp, "_", i)
+                                        
+                                        # Extract current parameter set
+                                        current_params <- parameter_df[i, , drop = FALSE]
+                                        
+                                        # Create vector list for this specific parameter set
+                                        vector_list <- create_vector_list(
+                                          parameter_df = current_params,
+                                          emissions_df = emissions_df,
+                                          economic_df = economic_df,
+                                          scenario = scenario
+                                        )
+                                        
+                                        # Run either forward_backward_sweep or shooting_method
+                                        #result <- forward_backward_sweep(current_params, vector_list)
+                                        result <- shooting_method(current_params, vector_list)
+                                        
+                                        # Add run_id and parameters to result
+                                        result$run_id <- run_id
+                                        result$parameters <- current_params
+                                        
+                                        # Optionally save intermediate result
+                                        if(save_intermediate) {
+                                          saveRDS(result, file = paste0("result_", run_id, ".rds"))
+                                        }
+                                        
+                                        return(result)
+                                      }
+  
+  # Stop the cluster
+  stopCluster(cl)
   
   # Name each element in results_list according to run_id
   names(results_list) <- paste0("run_", timestamp, "_", seq_len(nrow(parameter_df)))

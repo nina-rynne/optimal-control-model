@@ -94,6 +94,7 @@ forward_backward_sweep <- function(parameter_df,
   
   # Adjoint variable
   adjoint_var <- vector_list$adjoint_var
+  adjoint_var[n_years] <- trans_cond
   
   # Cost components
   baseline_annual_gwp <- vector_list$baseline_annual_gwp
@@ -104,7 +105,7 @@ forward_backward_sweep <- function(parameter_df,
   
   ### ---------- BEGIN ITERATION LOOP ------------ ###
   
-  while(min_convergence < 0 & iteration < max_iterations){
+  while((is.na(min_convergence) || min_convergence < 0) && iteration < max_iterations){
     
     # Save control variables, cumulative emissions and adjoint variable for
     # convergence testing in last step
@@ -175,20 +176,35 @@ forward_backward_sweep <- function(parameter_df,
     ### ---------- TEST CONVERGENCE ------------ ###
     
     # Calculate absolute differences for key variables
-    mitigation_diff <- sum(abs(qty_mitig - previous_qty_mitig))
-    removal_diff <- sum(abs(qty_remov - previous_qty_remov))
-    emissions_diff <- sum(abs(cumulative_emissions - previous_cumulative_emissions))
-    adjoint_diff <- sum(abs(adjoint_var - previous_adjoint_var))
+    mitigation_diff <- sum(abs(qty_mitig - previous_qty_mitig), na.rm = TRUE)
+    removal_diff <- sum(abs(qty_remov - previous_qty_remov), na.rm = TRUE)
+    emissions_diff <- sum(abs(cumulative_emissions - previous_cumulative_emissions), na.rm = TRUE)
+    adjoint_diff <- sum(abs(adjoint_var - previous_adjoint_var), na.rm = TRUE)
+    
+    # Calculate convergence metrics with safeguards against NAs
+    sum_qty_mitig <- sum(abs(qty_mitig), na.rm = TRUE)
+    sum_qty_remov <- sum(abs(qty_remov), na.rm = TRUE) 
+    sum_emissions <- sum(abs(cumulative_emissions), na.rm = TRUE)
+    sum_adjoint <- sum(abs(adjoint_var), na.rm = TRUE)
+    
+    # Avoid division by zero with a small epsilon
+    epsilon <- 1e-10
     
     # Calculate convergence metrics (scaled by variable magnitudes)
     # These should be non-negative when converged
-    mitigation_conv <- convergence_tolerance * sum(abs(qty_mitig)) - mitigation_diff
-    removal_conv <- convergence_tolerance * sum(abs(qty_remov)) - removal_diff
-    emissions_conv <- convergence_tolerance * sum(abs(cumulative_emissions)) - emissions_diff
-    adjoint_conv <- convergence_tolerance * sum(abs(adjoint_var)) - adjoint_diff
+    mitigation_conv <- convergence_tolerance * max(sum_qty_mitig, epsilon) - mitigation_diff
+    removal_conv <- convergence_tolerance * max(sum_qty_remov, epsilon) - removal_diff
+    emissions_conv <- convergence_tolerance * max(sum_emissions, epsilon) - emissions_diff
+    adjoint_conv <- convergence_tolerance * max(sum_adjoint, epsilon) - adjoint_diff
     
     # Take minimum of all metrics - all must be positive for convergence
-    min_convergence <- min(mitigation_conv, removal_conv, emissions_conv, adjoint_conv)
+    # Protect against NA with na.rm = TRUE
+    min_convergence <- min(mitigation_conv, removal_conv, emissions_conv, adjoint_conv, na.rm = TRUE)
+    
+    # If all values were NA, min() with na.rm=TRUE returns Inf, so check for that:
+    if(is.infinite(min_convergence)) {
+      min_convergence <- -1  # Force another iteration unless we hit max_iterations
+    }
     
     iteration <- iteration + 1
     
@@ -218,7 +234,12 @@ forward_backward_sweep <- function(parameter_df,
     cost_mitig_cumul = cost_mitig_cumul,
     cost_remov_cumul = cost_remov_cumul,
     cost_resid_cumul = cost_resid_cumul,
-    cost_total_cumul = cost_total_cumul))  
+    cost_total_cumul = cost_total_cumul,
+    
+    # Additional diagnostic information
+    iterations = iteration,
+    converged = !is.na(min_convergence) && min_convergence >= 0,
+    min_convergence = min_convergence)) 
 }
 
   
