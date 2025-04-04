@@ -23,12 +23,9 @@
 #'
 #' @references
 #' 
-
-# Load required packages
-library(dplyr)    # For data manipulation
-library(tidyr)    # For reshaping data
-library(here)     # For file path management
-
+#' @dependencies
+#' Required packages: dplyr, tidyr, here
+#' 
 
 #' @title Shooting Method for Optimal Control
 #' @description
@@ -52,13 +49,15 @@ shooting_method <- function(parameter_df,
   converged = FALSE
   max_iterations <- 1e4
   iteration <- 0
+  temperature_target <- 1.5
   
   # Extract required variables from parameter_df
   tcre <- parameter_df$tcre
+  clim_temp_init <- parameter_df$clim_temp_init
   trans_low <- parameter_df$trans_low
   trans_high <- parameter_df$trans_high
   co2_target_2100 <- parameter_df$co2_target_2100
-  #co2_target_2100 <- (0.3 / tcre) * 1000
+  #co2_target_2100 <- ((temperature_target - clim_temp_init) / tcre) * 1000
   
   # First evaluation at lower bound
   result_low <- forward_backward_sweep(parameter_df, vector_list, trans_low)

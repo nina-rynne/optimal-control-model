@@ -26,14 +26,12 @@
 #' - Carnell, R. (2006). lhs: Latin Hypercube Samples (p. 1.2.0) [Computer software]. 
 #'   https://CRAN.R-project.org/package=lhs
 #'
+#' @dependencies
+#' Required packages: dplyr, here, lhs
+#' 
 #' This module provides the following key functions:
 #' - generate_lhs_samples: Calculates a latin hypercube sampling of the listed parameters
 #' 
-
-# Load required libraries
-library(dplyr) # data manipulation
-library(here)  # file management
-library(lhs)   # Latin hypercube sampling
 
 #' @title Latin Hypercube Sampling for Model Parameters
 #' @description
@@ -79,11 +77,11 @@ generate_lhs_samples <- function(n_samples = 50,
   
   # Define parameter ranges
   parameter_ranges <- list(
-    tcre = c(min = 0.0027, max = 0.0063), # transient climate response to cumulative emissions
-    cost_mitig_unit = c(min = 200, max = 1000), # cost of deploying mitigation
-    cost_remov_unit = c(min = 5, max = 2000), # cost of deploying CDR
+    tcre = c(min = 0.27, max = 0.63), # transient climate response to cumulative emissions degrees C
+    cost_mitig_unit = c(min = (0.2), max = (1)), # cost of deploying mitigation (per Gt (*1e9), converted to trillions (/1e12))
+    cost_remov_unit = c(min = (0.8), max = (2)), # cost of deploying CDR trillion (per Gt (*1e9), converted to trillions (/1e12))
     econ_dam_pct = c(min = 0.05, max = 0.2), # proportion of GWP reduced by climate damage
-    disc_rate = c(min = 0.01, max = 0.05) # future discounting
+    disc_rate = c(min = 0.001, max = 0.05) # future discounting
   )
   
   # Generate Latin Hypercube samples

@@ -23,18 +23,15 @@
 #' 
 #' @references
 #'
+#' @dependencies 
+#' Required packages: dplyr, tidyr, readr, here
+#' 
 #' This module provides the following key functions:
 #' - import_ssp_emissions: Imports emissions scenario data from SSP sources
 #' - import_ssp_economic: Imports economic data from SSP sources
 #' - interpolate_ssp_emissions: Creates a complete emissions time series with interpolated values
 #' - interpolate_ssp_economic: Creates a complete economic data time series with interpolated values
 #'
-
-# Load required packages for data manipulation and CSV handling
-library(dplyr)    # For data manipulation and filtering
-library(tidyr)    # For reshaping data (pivot_wider)
-library(readr)    # For reading CSV files
-library(here)     # For file path management
 
 # Define the data directory path relative to the project root
 DATA_DIR <- "data"
@@ -173,7 +170,7 @@ import_ssp_economic <- function(file_name, scenarios = NULL, regions = "world", 
 #'   end_year = 2100
 #' )
 
-interpolate_ssp_emissions <- function(emissions_df, dt = 1, start_year = 2020, end_year = 2100) {
+old_interpolate_ssp_emissions <- function(emissions_df, dt = 1, start_year = 2020, end_year = 2100) {
   # Convert wide format to long format first to make interpolation easier
   emissions_long <- emissions_df %>%
     tidyr::pivot_longer(
@@ -261,6 +258,129 @@ interpolate_ssp_emissions <- function(emissions_df, dt = 1, start_year = 2020, e
   # This is more reliable than repeatedly using rbind
   if (length(result_list) > 0) {
     interpolated_data <- dplyr::bind_rows(result_list)
+    return(interpolated_data)
+  } else {
+    warning("No valid interpolated data was produced. Check input data structure.")
+    return(NULL)
+  }
+}
+
+#' @title Interpolate SSP Emissions Time Series
+#' @description
+#' Creates a complete emissions time series with specified time step by interpolating
+#' between available data points in the wide-format SSP data. All emission values 
+#' are adjusted by a multiplier parameter.
+#'
+#' @param emissions_df Data frame containing emissions data in wide format with year columns
+#' @param dt Time step size for interpolation (in years)
+#' @param start_year Starting year for the interpolated series
+#' @param end_year Ending year for the interpolated series
+#' @param clim_co2_remain Factor to multiply emission values by (default: 0.5)
+#' @return A data frame with complete emissions time series at specified time step,
+#'         restructured to long format with columns for Scenario, Model, Region, Variable,
+#'         Unit, Year, and Value
+#' @examples
+#' interpolated_emissions <- interpolate_ssp_emissions(
+#'   emissions_df = ssp_emissions_data,
+#'   dt = 1,
+#'   start_year = 2020,
+#'   end_year = 2100,
+#'   clim_co2_remain = 0.6
+#' )
+
+interpolate_ssp_emissions <- function(emissions_df, dt = 1, start_year = 2020, end_year = 2100, clim_co2_remain = 0.5) {
+  # Convert wide format to long format first to make interpolation easier
+  emissions_long <- emissions_df %>%
+    tidyr::pivot_longer(
+      cols = where(is.numeric),  # All numeric columns (years)
+      names_to = "Year",
+      values_to = "Value"
+    ) %>%
+    dplyr::mutate(Year = as.numeric(Year))  # Ensure Year is numeric
+  
+  # Get unique combinations of Scenario, Model, Region, and Variable
+  series_groups <- emissions_long %>%
+    dplyr::select(Scenario, Model, Region, Variable, Unit) %>%
+    dplyr::distinct()
+  
+  # Create an empty list to store results from each iteration
+  result_list <- list()
+  
+  # Process each unique combination
+  for (i in 1:nrow(series_groups)) {
+    # Extract current group
+    current <- series_groups[i, ]
+    
+    # Filter data for current group
+    group_data <- emissions_long %>%
+      dplyr::filter(
+        Scenario == current$Scenario,
+        Model == current$Model,
+        Region == current$Region,
+        Variable == current$Variable
+      )
+    
+    # Create sequence of years for interpolation
+    years_seq <- seq(start_year, end_year, by = dt)
+    
+    # Create a new dataframe with all years in the sequence
+    new_years <- data.frame(
+      Scenario = current$Scenario,
+      Model = current$Model,
+      Region = current$Region,
+      Variable = current$Variable,
+      Unit = current$Unit,
+      Year = years_seq
+    )
+    
+    # Merge with existing data to keep original values
+    merged_data <- dplyr::full_join(
+      new_years,
+      group_data,
+      by = c("Scenario", "Model", "Region", "Variable", "Unit", "Year")
+    )
+    
+    # Sort by year
+    merged_data <- merged_data %>% dplyr::arrange(Year)
+    
+    # Get available years and values (non-NA)
+    available_years <- merged_data$Year[!is.na(merged_data$Value)]
+    available_values <- merged_data$Value[!is.na(merged_data$Value)]
+    
+    # Only proceed with interpolation if we have at least 2 valid points
+    if (length(available_values) >= 2) {
+      # Perform linear interpolation
+      interp_values <- approx(
+        x = available_years,
+        y = available_values,
+        xout = merged_data$Year,
+        method = "linear",
+        rule = 2  # rule=2 means extrapolate beyond the data range
+      )
+      
+      merged_data$Value <- interp_values$y
+      
+      # Store this result in the list
+      result_list[[i]] <- merged_data
+    } else if (length(available_values) == 1) {
+      # If only one valid point, use that value for all years
+      merged_data$Value <- available_values[1]
+      
+      # Store this result in the list
+      result_list[[i]] <- merged_data
+    }
+    # If zero valid points, we don't add anything to the list
+  }
+  
+  # Combine all results from the list using bind_rows
+  # This is more reliable than repeatedly using rbind
+  if (length(result_list) > 0) {
+    interpolated_data <- dplyr::bind_rows(result_list)
+    
+    # Apply the % emissions remaining after ocean/biosphere uptake
+    interpolated_data <- interpolated_data %>%
+      dplyr::mutate(Value = Value * clim_co2_remain)
+    
     return(interpolated_data)
   } else {
     warning("No valid interpolated data was produced. Check input data structure.")
@@ -377,6 +497,11 @@ interpolate_ssp_economic <- function(economic_df, dt = 1, start_year = 2020, end
   # This is more reliable than repeatedly using rbind
   if (length(result_list) > 0) {
     interpolated_data <- dplyr::bind_rows(result_list)
+    
+    # Multiply all values by 1 trillion (1e12)
+    #interpolated_data <- interpolated_data %>%
+    #  dplyr::mutate(Value = Value * 1e12)
+    
     return(interpolated_data)
   } else {
     warning("No valid interpolated data was produced. Check input data structure.")

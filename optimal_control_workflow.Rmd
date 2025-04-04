@@ -61,8 +61,18 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r libraries}
 
 # Load required libraries
-library(here)
-library(dplyr)
+library(dplyr)     # For data manipulation and filtering
+library(tidyr)     # For reshaping data (pivot_wider)
+library(readr)     # For reading CSV files
+library(here)      # For file path management
+library(lhs)       # For latin hypercube sampling
+library(yaml)      # For interacting with yaml file
+library(tidyverse) # For data manipulation and visualization
+library(ggplot2)   # For plotting
+library(cowplot)   # For plotting
+library(patchwork) # For plotting
+library(Cairo)     # For exporting PDF plots
+
 
 ```
 
@@ -103,7 +113,7 @@ economic_df <- interpolate_ssp_economic(
 
 source(here::here("src", "latin_hypercube_sampling.R"))
 
-lhs_parameter_df <- generate_lhs_samples(2)
+lhs_parameter_df <- generate_lhs_samples(1)
 
 
 ```
@@ -112,7 +122,9 @@ lhs_parameter_df <- generate_lhs_samples(2)
 
 source(here::here("src", "model_parameters.R"))
 
-parameter_df <- add_fixed_parameters(lhs_parameter_df)
+#parameter_df <- add_fixed_parameters(lhs_parameter_df)
+
+parameter_df <- create_params_dataframe()
 
 
 ```
@@ -132,17 +144,46 @@ oc_solution <- run_multiple_sweeps(parameter_df, emissions_df, economic_df, scen
 # Save optimal control solution data
 save_timestamped_solution(oc_solution, "oc_solution", scenario)
 
+
 ```
 
 ```{r visualisation_call}
 
 source(here::here("src", "visualisation.R"))
 
-create_temperature_plot(oc_solution)
-create_emissions_plot(oc_solution)
+# create_temperature_plot(oc_solution)
+# create_emissions_plot(oc_solution)
+# create_mitigation_plot(oc_solution)
+# create_cdr_plot(oc_solution)
+# create_adjoint_plot(oc_solution)
+# create_cost_plot(oc_solution)
+
+# Then create the combined dashboard
+combined_dashboard <- create_combined_dashboard(oc_solution)
 
 ```
 
+```{r save_parameters}
 
+saveRDS(safe_parameter_df, "safe_parameter_df.rds")
+saveRDS(faulty_parameter_df, "faulty_parameter_df.rds")
+
+parameter_df <- readRDS("safe_parameter_df.rds")
+
+```
+
+```{r testing}
+
+# Extract the list component and convert it to a data frame
+temp_anomaly <- data.frame(
+  year = oc_solution$run_20250404_100049_1$years,
+  temperature_anomaly = oc_solution$run_20250404_100049_1$temperature_anomaly
+)
+
+# Save as CSV
+write_csv(temp_anomaly, "temp_anomaly.csv")
+
+
+```
 
 

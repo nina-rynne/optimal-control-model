@@ -27,12 +27,6 @@
 #' Required packages: dplyr, tidyr, here
 #' 
 
-# Load required packages
-library(dplyr)    # For data manipulation
-library(tidyr)    # For reshaping data
-library(here)     # For file path management
-
-
 #' @title Forward-Backward Sweep for Optimal Control
 #' @description
 #' Implements the forward-backward sweep method for finding optimal control
@@ -125,7 +119,7 @@ old_forward_backward_sweep <- function(parameter_df,
     } ### ---------- END FORWARD SWEEP ------------ ###
     
     # Calculate temperature based on cumulative emissions
-    temperature_anomaly <- clim_temp_init + (0.00045 * cumulative_emissions)
+    temperature_anomaly <- clim_temp_init + ((cumulative_emissions/1000) * tcre)
     
     ### ---------- BACKWARD SWEEP ------------ ###
     for (i in 1:(n_years-1)) {
@@ -134,8 +128,8 @@ old_forward_backward_sweep <- function(parameter_df,
       
       adjoint_derivative <- -(exp_temp_anom * baseline_annual_gwp[j] * econ_dam_pct 
                               * tcre * exp(-disc_rate * (years_rel[j] - years_rel[1]))
-                              * (temperature_anomaly[j])^(exp_temp_anom - 1)
-                              )
+                              * (temp_for_calc)^(exp_temp_anom - 1)
+      )
       
       # Update adjoint variable (backward Euler step)
       adjoint_var[j] <- adjoint_var[j+1] - adjoint_derivative
@@ -262,6 +256,7 @@ old_forward_backward_sweep <- function(parameter_df,
 #' # Run with standard parameter set
 #' result <- forward_backward_sweep(parameter_df, vector_list)
 #'
+
 forward_backward_sweep <- function(parameter_df,
                                    vector_list,
                                    trans_cond = 0) {
@@ -326,6 +321,8 @@ forward_backward_sweep <- function(parameter_df,
     mitigation_min <- 0
     removal_min <- 0
     removal_max <- 100  # Could be parameterized based on technical limits
+    #removal_max <- 0  # Could be parameterized based on technical limits
+    #mitigation_max <- 0  # Could be parameterized based on technical limits
     
     # Extract required variables from parameter_df
     clim_temp_init <- parameter_df$clim_temp_init
@@ -386,7 +383,8 @@ forward_backward_sweep <- function(parameter_df,
       } ### ---------- END FORWARD SWEEP ------------ ###
       
       # Calculate temperature based on cumulative emissions
-      temperature_anomaly <- clim_temp_init + (tcre * cumulative_emissions)
+      #temperature_anomaly <- clim_temp_init + ((cumulative_emissions/1000) * tcre)
+      temperature_anomaly <- (((cumulative_emissions + 2500)/1000) * tcre)
       
       # Check for invalid temperature values
       if (any(is.na(temperature_anomaly)) || any(is.infinite(temperature_anomaly))) {
@@ -401,7 +399,7 @@ forward_backward_sweep <- function(parameter_df,
         j <- n_years - i
         
         # Safeguard against potential numerical issues
-        temp_for_calc <- max(temperature_anomaly[j], 1e-10)  # Avoid zero^negative issues
+        temp_for_calc <- max(temperature_anomaly[j], 1e-10)  # Avoid zero/negative issues
         
         # Calculate adjoint derivative with safety checks
         adjoint_derivative <- -(exp_temp_anom * baseline_annual_gwp[j] * econ_dam_pct 
@@ -450,6 +448,7 @@ forward_backward_sweep <- function(parameter_df,
       
       # Apply bounds to mitigation (can't mitigate more than baseline emissions)
       new_qty_mitig <- pmin(new_qty_mitig, baseline_annual_emissions)  # Upper bound
+      #new_qty_mitig <- pmin(new_qty_mitig, mitigation_max)  # Upper bound
       new_qty_mitig <- pmax(new_qty_mitig, 0)  # Lower bound
       
       # Update removal control based on optimality condition
@@ -478,13 +477,13 @@ forward_backward_sweep <- function(parameter_df,
       safe_qty_remov <- pmax(qty_remov, 0)  # Ensure non-negative values before raising to power
       safe_temp <- pmax(temperature_anomaly, 0)  # Ensure non-negative values before raising to power
       
-      cost_mitig_cumul <- cumsum((cost_mitig_unit * safe_qty_mitig^exp_mitig) * 
-                                   exp(disc_rate*years_rel))
-      cost_remov_cumul <- cumsum((cost_remov_unit * safe_qty_remov^exp_remov) * 
-                                   exp(disc_rate*years_rel))
+      cost_mitig_cumul <- cumsum(((cost_mitig_unit * safe_qty_mitig^exp_mitig) * 
+                                   exp(-disc_rate*years_rel)))
+      cost_remov_cumul <- cumsum(((cost_remov_unit * safe_qty_remov^exp_remov) * 
+                                   exp(-disc_rate*years_rel)))
       cost_resid_cumul <- cumsum((baseline_annual_gwp * econ_dam_pct * 
                                     ((safe_temp)^(exp_temp_anom)) * 
-                                    exp(disc_rate*years_rel)))
+                                    exp(-disc_rate*years_rel)))
       cost_total_cumul <- cost_mitig_cumul + cost_remov_cumul + cost_resid_cumul
       
       # Check for invalid cost values
@@ -530,11 +529,11 @@ forward_backward_sweep <- function(parameter_df,
       }
       
       # Check for divergence (large negative convergence metric)
-      if (!is.na(min_convergence) && min_convergence < -1e6) {
-        result$error <- TRUE
-        result$error_message <- "Solution appears to be diverging"
-        return(result)
-      }
+      # if (!is.na(min_convergence) && min_convergence < -1e6) {
+      #   result$error <- TRUE
+      #   result$error_message <- "Solution appears to be diverging"
+      #   return(result)
+      # }
       
       iteration <- iteration + 1
       

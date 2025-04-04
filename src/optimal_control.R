@@ -28,11 +28,6 @@
 #' Required packages: dplyr, tidyr, here
 #' 
 
-# Load required packages
-library(dplyr)    # For data manipulation
-library(tidyr)    # For reshaping data
-library(here)     # For file path management
-
 #' @title Initialize Log File for Optimal Control Run
 #' @description
 #' Creates a log file with timestamp for recording simulation progress and debugging information.
@@ -137,7 +132,8 @@ create_vector_list <- function(parameter_df,
   
   # Initial state
   cumulative_emissions[1] <- baseline_annual_emissions[1]
-  temperature_anomaly[1] <- clim_temp_init + tcre * cumulative_emissions[1]
+  #temperature_anomaly[1] <- clim_temp_init + ((cumulative_emissions[1]/1000) * tcre)
+  temperature_anomaly[1] <- (((cumulative_emissions[1] + 2500)/1000) * tcre)
   
   # Control variables with bounds
   # numeric vector of mitigation control at each time step, initialised to 0
