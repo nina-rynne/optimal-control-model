@@ -12,8 +12,8 @@ tcre: 0.45 # Transient climate response to CO2 emissions
 
 econ_dam_pct: 0.05 # proportion of GWP reduced by climate change
 disc_rate: 0.001 # future discounting 
-cost_mitig_unit: 0.3  # cost per Gt, in trillion $
-cost_remov_unit: 1.2  # cost per Gt, in trillion $
+cost_mitig_unit: 300  # cost per Gt, in trillion $
+cost_remov_unit: 1200  # cost per Gt, in trillion $
 
 # === Model Configuration ===
 # These parameters control model behavior rather than physical properties

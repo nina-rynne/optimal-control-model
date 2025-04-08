@@ -607,3 +607,131 @@ create_combined_dashboard <- function(oc_solution,
   
   return(final_plot)
 }
+
+
+#' @title Create Combined Model Output Dashboard WITH TITLE
+#' 
+create_combined_dashboard_title <- function(oc_solution, 
+                                      save_plot = TRUE,
+                                      show_legend = FALSE,
+                                      width = 190,
+                                      height = 260,
+                                      filename = NULL) {
+  
+  # Extract discount rate from parameters
+  # Find the name of the run element (it always starts with "run_")
+  run_names <- names(oc_solution)[grep("^run_", names(oc_solution))]
+  
+  # For safety, just use the first run if multiple are found
+  run_name <- run_names[1]
+  
+  # Extract the discount rate from the run's parameters
+  disc_rate <- oc_solution[[run_name]]$parameters$disc_rate
+  
+  # Define theme for consistent styling
+  my_theme <- theme_bw() +
+    theme(
+      text = element_text(size = 10),
+      plot.title = element_text(size = 10),
+      axis.title = element_text(size = 9),
+      axis.text = element_text(size = 8),
+      legend.title = element_text(size = 9),
+      legend.text = element_text(size = 8),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()
+    )
+  
+  # Create the individual plots
+  # 1. Emissions plot (top-left)
+  p1 <- create_emissions_plot(oc_solution) +
+    my_theme +
+    theme(legend.position = "none") +
+    labs(title = "Cumulative Emissions")
+  
+  # 2. Temperature plot (top-right)
+  p2 <- create_temperature_plot(oc_solution) +
+    my_theme +
+    theme(legend.position = "none") +
+    labs(title = "Temperature Anomaly")
+  
+  # 3. Mitigation plot (middle-left)
+  p3 <- create_mitigation_plot(oc_solution) +
+    my_theme +
+    theme(legend.position = "none") +
+    labs(title = "Mitigation Quantity")
+  
+  # 4. Carbon Dioxide Removal plot (middle-right)
+  p4 <- create_cdr_plot(oc_solution) +
+    my_theme +
+    theme(legend.position = "none") +
+    labs(title = "Carbon Dioxide Removal")
+  
+  # 5. Adjoint Variable plot (bottom-left)
+  p5 <- create_adjoint_plot(oc_solution) +
+    my_theme +
+    theme(legend.position = "none") +
+    labs(title = "Adjoint Variable")
+  
+  # 6. Cost plot (bottom-right) - WITH legend
+  p6 <- create_stacked_cost_plot(oc_solution) +
+    my_theme +
+    theme(legend.position = "bottom",
+          legend.box.margin = margin(t = 0, r = 0, b = 0, l = 0),
+          legend.margin = margin(t = 0, r = 0, b = 0, l = 0),
+          legend.key.size = unit(0.5, "cm")) +
+    labs(title = "Cumulative Total Costs")
+  
+  # Combine all plots using patchwork
+  combined_plot <- (p1 + p2) /
+    (p3 + p4) /
+    (p5 + p6)
+  
+  # Add a shared legend if requested
+  if (show_legend) {
+    # Create a shared legend
+    legend_plot <- create_emissions_plot(oc_solution) +
+      my_theme +
+      theme(legend.position = "bottom")
+    
+    # Extract the legend
+    legend <- cowplot::get_legend(legend_plot)
+    
+    # Add the legend as a separate row
+    combined_plot <- combined_plot / 
+      patchwork::wrap_elements(full = legend) +
+      patchwork::plot_layout(heights = c(1, 1, 1, 0.2))
+  }
+  
+  # Add annotation with title that includes discount rate
+  final_plot <- combined_plot + 
+    patchwork::plot_annotation(
+      title = paste("Costs x 1000. Discount rate:", sprintf("%.1f%%", disc_rate * 100)),
+      theme = theme(
+        plot.margin = margin(10, 0, 10, 0),
+        plot.title = element_text(size = 12, face = "bold", hjust = 0.5)
+      )
+    )
+  
+  # Save the plot if requested
+  if (save_plot) {
+    # Generate filename if not provided
+    if (is.null(filename)) {
+      filename <- paste0("combined_plot_", format(Sys.time(), "%Y-%m-%d_%H%M%S"), ".pdf")
+    }
+    
+    # Full path to save the file
+    filepath <- here::here("figs", filename)
+    
+    # Save using Cairo device for better quality
+    ggsave(filepath,
+           final_plot,
+           width = width,
+           height = height,
+           units = "mm",
+           device = cairo_pdf)
+    
+    message(paste("Plot saved as", filepath))
+  }
+  
+  return(final_plot)
+}

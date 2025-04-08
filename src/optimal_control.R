@@ -132,8 +132,8 @@ create_vector_list <- function(parameter_df,
   
   # Initial state
   cumulative_emissions[1] <- baseline_annual_emissions[1]
-  #temperature_anomaly[1] <- clim_temp_init + ((cumulative_emissions[1]/1000) * tcre)
-  temperature_anomaly[1] <- (((cumulative_emissions[1] + 2500)/1000) * tcre)
+  temperature_anomaly[1] <- clim_temp_init + ((cumulative_emissions[1]/1000) * tcre)
+  #temperature_anomaly[1] <- (((cumulative_emissions[1] + 2500)/1000) * tcre)
   
   # Control variables with bounds
   # numeric vector of mitigation control at each time step, initialised to 0
@@ -225,8 +225,8 @@ run_multiple_sweeps <- function(parameter_df,
     )
     
     # Run either forward_backward_sweep or shooting_method. Use only one.
-    result <- forward_backward_sweep(current_params, vector_list)
-    #result <- shooting_method(current_params, vector_list)
+    #result <- forward_backward_sweep(current_params, vector_list)
+    result <- shooting_method(current_params, vector_list)
     
     # Add run_id to result
     result$run_id <- run_id

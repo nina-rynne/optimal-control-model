@@ -159,7 +159,10 @@ source(here::here("src", "visualisation.R"))
 # create_cost_plot(oc_solution)
 
 # Then create the combined dashboard
-combined_dashboard <- create_combined_dashboard(oc_solution)
+#combined_dashboard <- create_combined_dashboard(oc_solution)
+
+combined_dashboard_title <- create_combined_dashboard_title(oc_solution)
+
 
 ```
 

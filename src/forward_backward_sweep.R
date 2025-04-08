@@ -321,8 +321,6 @@ forward_backward_sweep <- function(parameter_df,
     mitigation_min <- 0
     removal_min <- 0
     removal_max <- 100  # Could be parameterized based on technical limits
-    #removal_max <- 0  # Could be parameterized based on technical limits
-    #mitigation_max <- 0  # Could be parameterized based on technical limits
     
     # Extract required variables from parameter_df
     clim_temp_init <- parameter_df$clim_temp_init
@@ -383,8 +381,8 @@ forward_backward_sweep <- function(parameter_df,
       } ### ---------- END FORWARD SWEEP ------------ ###
       
       # Calculate temperature based on cumulative emissions
-      #temperature_anomaly <- clim_temp_init + ((cumulative_emissions/1000) * tcre)
-      temperature_anomaly <- (((cumulative_emissions + 2500)/1000) * tcre)
+      temperature_anomaly <- clim_temp_init + ((cumulative_emissions/1000) * tcre)
+      #temperature_anomaly <- (((cumulative_emissions + 2500)/1000) * tcre)
       
       # Check for invalid temperature values
       if (any(is.na(temperature_anomaly)) || any(is.infinite(temperature_anomaly))) {
