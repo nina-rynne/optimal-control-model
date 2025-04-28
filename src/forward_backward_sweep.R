@@ -27,7 +27,7 @@
 #' Required packages: dplyr, tidyr, here
 #' 
 
-#' @title Forward-Backward Sweep for Optimal Control
+#' @title Forward-Backward Sweep for Optimal Control NO ERROR HANDLING
 #' @description
 #' Implements the forward-backward sweep method for finding optimal control
 #' strategies for temperature overshoot management. The function finds optimal
@@ -238,7 +238,7 @@ old_forward_backward_sweep <- function(parameter_df,
 
 
 
-###----- TEST VERSION -----###
+###----- ERROR HANDLING VERSION -----###
 
 #' @title Forward-Backward Sweep for Optimal Control with Error Handling
 #' @description
