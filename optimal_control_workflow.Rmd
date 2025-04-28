@@ -9,9 +9,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 #' @title Full Workflow for Climate Optimal Control
 #' @description
-#' This script contains function calls to run a complete optimal control solver,
-#' using a mult-scenario parameter file, for the optimal control of the temperature 
-#' overshoot model.
+#' This workflow runs the complete optimal control solver for climate temperature overshoot modeling. 
+#' It loads necessary data, generates parameter sets, and runs the optimal control algorithm
 #'
 #' @author Nina Rynne
 #' @project Optimal Control of Temperature Overshoot
@@ -21,77 +20,49 @@ knitr::opts_chunk$set(echo = TRUE)
 #'
 #' @citation If published, include how to cite this work, e.g.:
 #' Rynne, N. (2025). Optimal control methods for climate temperature overshoot.
-#' Journal of Climate Modeling, XX(X), XXX-XXX. doi:XX.XXXX/XXXXX
-#'
-#' @funding Include any grant or funding information here
-#'
-#' @collaborators List any collaborators or contributors
+#' XXX, XX(X), XXX-XXX. doi:XX.XXXX/XXXXX
 #'
 #' @contact nina.rynne@griffithuni.edu.au
 #'
 #' @repository https://github.com/nina-rynne/optimal-control-model
 #' 
-#' @references
-#' 
-#'OTHER DATA TO CONSIDER INCLUDING
-#'- data sources (version numbers, DOIs, access dates)
-#'- methods documentation (descriptions of mathematical methods, interpolation techniques or assumptions)
-#'- validation info (how was processing validated or verified)
-#'- unit tests
-#'- change log (document version changes over time)
-#'- reproducibility notes (info on software versions and package dependencies)
-#'- ORCID
-#'- data dictionary (define what each variable represents, its units and valid ranges)
-#'
-#'
-#' This module calls the following key functions in order:
-#' - import_ssp_emissions: Imports emissions scenario data from SSP sources
-#' - import_ssp_economic: Imports economic data from SSP sources
-#' - interpolate_ssp_emissions: Creates a complete emissions time series with interpolated values
-#' - interpolate_ssp_economic: Creates a complete economic data time series with interpolated values
-#' - generate_lhs_samples: Creates a data frame of parameter scenarios using latin hypercube sampling
-#' - get_fixed_parameters: Imports fixed
-#' 
-#' Each function includes detailed documentation on parameters and returns.
-#' The functions are designed to be modular and reusable in different contexts
-#' within the optimal control framework.
-#'
 ```
 
 ```{r libraries}
 
-# Load required libraries
-library(dplyr)     # For data manipulation and filtering
-library(tidyr)     # For reshaping data (pivot_wider)
-library(readr)     # For reading CSV files
-library(here)      # For file path management
-library(lhs)       # For latin hypercube sampling
-library(yaml)      # For interacting with yaml file
-library(tidyverse) # For data manipulation and visualization
-library(ggplot2)   # For plotting
-library(cowplot)   # For plotting
-library(patchwork) # For plotting
-library(Cairo)     # For exporting PDF plots
-
+# Load required libraries for data processing, optimization, and visualization
+library(dplyr)     # Data manipulation
+library(tidyr)     # Data reshaping
+library(readr)     # Reading data files
+library(here)      # File path management
+library(lhs)       # Latin hypercube sampling
+library(yaml)      # YAML file handling
+library(parallel)  # Parallel processing
+library(foreach)   # Parallel iteration
+library(doParallel) # Parallel backend
+library(iterators) # Iterator support
+library(tidyverse) # Data science toolkit
+library(ggplot2)   # Data visualization
+library(cowplot)   # Plot arrangement
+library(patchwork) # Plot composition
+library(Cairo)     # PDF export
 
 ```
 
 ```{r data_preparation_call}
 
-# Source the data preparation functions
+# Import and prepare emissions and economic data
+# This section imports raw SSP scenario data and interpolates it to annual time steps
+
+# Source data preparation functions
 source(here::here("src", "data_preparation.R"))
 
-# Import emissions data - just pass the filename, path handling is in the import function
+# Import emissions and economic data
 emissions_imported <- import_ssp_emissions("emissions.csv")
-cat("Imported emissions data dimensions:", dim(emissions_imported)[1], "rows,", 
-    dim(emissions_imported)[2], "columns\n")
-
-# Import economic data - just pass the filename, path handling is in the import function
 economic_imported <- import_ssp_economic("gwp.csv")
-cat("Imported economic data dimensions:", dim(economic_imported)[1], "rows,", 
-    dim(economic_imported)[2], "columns\n")
 
-# Interpolate emissions with annual time step
+# Interpolate data to annual time step (2020-2100)
+# USER CHOICE: Modify start_year, end_year, or dt if different time range/step is needed
 emissions_df <- interpolate_ssp_emissions(
   emissions_df = emissions_imported,
   dt = 1,
@@ -99,7 +70,6 @@ emissions_df <- interpolate_ssp_emissions(
   end_year = 2100
 )
 
-# Interpolate GWP with annual time step
 economic_df <- interpolate_ssp_economic(
   economic_df = economic_imported,
   dt = 1,
@@ -111,37 +81,53 @@ economic_df <- interpolate_ssp_economic(
 
 ```{r latin_hypercube_sampling_call}
 
+# Generate parameter sets using Latin Hypercube Sampling
+# This creates multiple parameter combinations for sensitivity analysis
+
 source(here::here("src", "latin_hypercube_sampling.R"))
 
-lhs_parameter_df <- generate_lhs_samples(1)
-
+# USER CHOICE: Change 100 to desired number of parameter sets to generate
+lhs_parameter_df <- generate_lhs_samples(50)
 
 ```
 
 ```{r model_parameters_call}
 
+# Add fixed model parameters to the LHS samples
+# Combines variable parameters from LHS with fixed model parameters
+
 source(here::here("src", "model_parameters.R"))
 
-#parameter_df <- add_fixed_parameters(lhs_parameter_df)
+parameter_df <- add_fixed_parameters(lhs_parameter_df)
 
-parameter_df <- create_params_dataframe()
+# Alternative: Use predefined parameter set instead of LHS samples, requires updated
+# yaml parameters file
+# Uncomment the following line to use fixed parameters instead:
+# parameter_df <- create_params_dataframe()
 
 
 ```
 
 ```{r optimal_control_call}
 
+# Run the optimal control solution for specified scenario
+# This is the main computational step that solves the optimal control problem
+
 source(here::here("src", "optimal_control.R"))
 source(here::here("src", "forward_backward_sweep.R"))
 source(here::here("src", "shooting_method.R"))
 
-# Set scenario
+# USER CHOICE: Set the SSP scenario to analyze
 scenario <- "SSP3-Baseline"
 
-# Call optimal control solution method
-oc_solution <- run_multiple_sweeps(parameter_df, emissions_df, economic_df, scenario)
+# USER CHOICE: Run with or without parallel processing
+# Option 1: Serial processing (slower but simpler)
+# oc_solution <- run_multiple_sweeps(parameter_df, emissions_df, economic_df, scenario)
 
-# Save optimal control solution data
+# Option 2: Parallel processing (faster, recommended for many parameter sets)
+oc_solution <- run_multiple_sweeps_parallel(parameter_df, emissions_df, economic_df, scenario)
+
+# Save results with timestamp for reproducibility
 save_timestamped_solution(oc_solution, "oc_solution", scenario)
 
 
@@ -149,8 +135,12 @@ save_timestamped_solution(oc_solution, "oc_solution", scenario)
 
 ```{r visualisation_call}
 
+# Create visualization of results
+# Generates plots and dashboards to show optimal control solutions
+
 source(here::here("src", "visualisation.R"))
 
+# USER CHOICE: Generate individual plots by uncommenting these lines
 # create_temperature_plot(oc_solution)
 # create_emissions_plot(oc_solution)
 # create_mitigation_plot(oc_solution)
@@ -158,35 +148,26 @@ source(here::here("src", "visualisation.R"))
 # create_adjoint_plot(oc_solution)
 # create_cost_plot(oc_solution)
 
-# Then create the combined dashboard
-#combined_dashboard <- create_combined_dashboard(oc_solution)
-
-combined_dashboard_title <- create_combined_dashboard_title(oc_solution)
+# Create combined dashboard with all key visualizations
+combined_dashboard <- create_combined_dashboard(oc_solution)
 
 
 ```
 
-```{r save_parameters}
+```{r save_parameters, eval=FALSE, include=FALSE}
 
+# Save parameter sets for reproducibility and further analysis
+# This separates successful and problematic parameter combinations
+
+# Save parameter sets that worked well vs. those that failed
 saveRDS(safe_parameter_df, "safe_parameter_df.rds")
 saveRDS(faulty_parameter_df, "faulty_parameter_df.rds")
 
+# Load saved parameter set (e.g., for rerunning successful parameters)
 parameter_df <- readRDS("safe_parameter_df.rds")
 
 ```
 
-```{r testing}
 
-# Extract the list component and convert it to a data frame
-temp_anomaly <- data.frame(
-  year = oc_solution$run_20250404_100049_1$years,
-  temperature_anomaly = oc_solution$run_20250404_100049_1$temperature_anomaly
-)
-
-# Save as CSV
-write_csv(temp_anomaly, "temp_anomaly.csv")
-
-
-```
 
 

@@ -78,10 +78,8 @@ generate_lhs_samples <- function(n_samples = 50,
   # Define parameter ranges
   parameter_ranges <- list(
     tcre = c(min = 0.27, max = 0.63), # transient climate response to cumulative emissions degrees C
-    #cost_mitig_unit = c(min = (0.2), max = (1)), # cost of deploying mitigation (per Gt (*1e9), converted to trillions (/1e12))
-    cost_mitig_unit = c(min = (200), max = (1000)), # cost of deploying mitigation UNCONVERTED
-    #cost_remov_unit = c(min = (0.8), max = (2)), # cost of deploying CDR trillion (per Gt (*1e9), converted to trillions (/1e12))
-    cost_remov_unit = c(min = (50), max = (2000)), # cost of deploying mitigation UNCONVERTED
+    cost_mitig_unit = c(min = (0.2), max = (1)), # cost of deploying mitigation (per Gt (*1e9), converted to trillions (/1e12))
+    cost_remov_unit = c(min = (0.8), max = (2)), # cost of deploying CDR trillion (per Gt (*1e9), converted to trillions (/1e12))
     econ_dam_pct = c(min = 0.05, max = 0.2), # proportion of GWP reduced by climate damage
     disc_rate = c(min = 0.001, max = 0.05) # future discounting
   )

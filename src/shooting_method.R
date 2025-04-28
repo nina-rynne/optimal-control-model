@@ -134,7 +134,7 @@ old_shooting_method <- function(parameter_df,
 #' result <- shooting_method(parameter_df, vector_list)
 #'
 
-shooting_method <- function(parameter_df,
+old2_shooting_method <- function(parameter_df,
                             vector_list,
                             log_file = NULL) {
   
@@ -316,3 +316,134 @@ shooting_method <- function(parameter_df,
   })
 }
 
+
+
+
+###----- ERROR HANDLING VERSION -----###
+
+shooting_method <- function(parameter_df,
+                            vector_list,
+                            log_file = NULL) {  # Add log_file parameter with NULL default
+  # Create result structure with an error field
+  result <- list(
+    error = FALSE,
+    error_message = NULL
+  )
+  
+  # Wrap the calculation in a try-catch to handle unexpected errors
+  tryCatch({
+    # Algorithm settings
+    convergence_tolerance <- 0.001
+    converged = FALSE
+    max_iterations <- 1e4
+    iteration <- 0
+    temperature_target <- 1.5
+    
+    # Extract required variables from parameter_df
+    tcre <- parameter_df$tcre
+    clim_temp_init <- parameter_df$clim_temp_init
+    trans_low <- parameter_df$trans_low
+    trans_high <- parameter_df$trans_high
+    co2_target_2100 <- parameter_df$co2_target_2100
+    
+    # Log iteration start if log file provided
+    if (!is.null(log_file)) {
+      write_log(log_file, "Starting shooting method")
+    }
+    
+    # First evaluation at lower bound
+    result_low <- forward_backward_sweep(parameter_df, vector_list, trans_low)
+    
+    # Check if forward_backward_sweep returned an error
+    if (result_low$error) {
+      result$error <- TRUE
+      result$error_message <- paste("Lower bound evaluation failed:", result_low$error_message)
+      return(result)
+    }
+    
+    # Calculate deviation from target
+    emission_gap_low <- utils::tail(result_low$cumulative_emissions, 1) - co2_target_2100
+    
+    # First evaluation at upper bound
+    result_high <- forward_backward_sweep(parameter_df, vector_list, trans_high)
+    
+    # Check if forward_backward_sweep returned an error
+    if (result_high$error) {
+      result$error <- TRUE
+      result$error_message <- paste("Upper bound evaluation failed:", result_high$error_message)
+      return(result)
+    }
+    
+    # Calculate deviation from target
+    emission_gap_high <- utils::tail(result_high$cumulative_emissions, 1) - co2_target_2100
+    
+    # Main secant iteration loop
+    while (!is.na(converged) && !converged && 
+           !is.na(iteration) && iteration < max_iterations) {
+      iteration <- iteration + 1
+      
+      # Also add this inside the loop to check for NAs:
+      if (any(is.na(c(converged, iteration)))) {
+        warning("NA values detected in convergence check. Stopping iteration.")
+        break
+      }
+      
+      # Ensure we're working with the better approximation
+      if(abs(emission_gap_low) > abs(emission_gap_high)) {
+        # Swap values to keep better approximation
+        temp_trans <- trans_low
+        trans_low <- trans_high
+        trans_high <- temp_trans
+        
+        temp_gap <- emission_gap_low
+        emission_gap_low <- emission_gap_high
+        emission_gap_high <- temp_gap
+      }
+      
+      # Calculate secant method step
+      adj_step <- emission_gap_low * (trans_high - trans_low) / (emission_gap_high - emission_gap_low)
+      
+      # Update values for next iteration
+      trans_high <- trans_low
+      emission_gap_high <- emission_gap_low
+      trans_low <- trans_low - adj_step
+      
+      # Evaluate at new point
+      result <- forward_backward_sweep(parameter_df, vector_list, trans_low)
+      
+      # Check if forward_backward_sweep returned an error
+      if (result$error) {
+        result$error_message <- paste("Iteration", iteration, "failed:", result$error_message)
+        return(result)
+      }
+      
+      emission_gap_low <- tail(result$cumulative_emissions, 1) - co2_target_2100
+      
+      # Log progress if log file provided
+      if (!is.null(log_file)) {
+        write_log(log_file, sprintf("Iteration %d: trans_low = %.6f, gap = %.6f", 
+                                    iteration, trans_low, emission_gap_low))
+      }
+      
+      # Check convergence
+      if(abs(emission_gap_low) <= convergence_tolerance || iteration >= max_iterations) {
+        converged <- TRUE
+      }
+    }
+    
+    # Add shooting method specific information to result
+    result$shooting_iterations <- iteration
+    result$shooting_converged <- converged
+    result$emission_gap <- emission_gap_low
+    result$trans_value <- trans_low
+    
+    return(result)
+    
+  }, error = function(e) {
+    # Catch any other errors that we didn't explicitly handle
+    return(list(
+      error = TRUE,
+      error_message = paste("Shooting method error:", e$message)
+    ))
+  })
+}

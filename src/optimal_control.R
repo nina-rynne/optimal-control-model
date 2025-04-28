@@ -354,10 +354,10 @@ run_multiple_sweeps_parallel <- function(parameter_df,
                                          verbose = FALSE) {
   
   # Load required packages for parallel processing
-  library(parallel)
-  library(foreach)
-  library(doParallel)
-  library(iterators)
+#  library(parallel)
+#  library(foreach)
+#  library(doParallel)
+#  library(iterators)
   
   # Determine number of cores to use
   if (is.null(n_cores)) {
@@ -366,21 +366,34 @@ run_multiple_sweeps_parallel <- function(parameter_df,
     n_cores <- min(n_cores, detectCores())  # Ensure we don't request more cores than available
   }
   
-  if (verbose) {
-    cat(sprintf("Running with %d cores\n", n_cores))
-    cat(sprintf("Processing %d parameter sets\n", nrow(parameter_df)))
-  }
-  
   # Create a timestamp for this batch of runs
   timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+  
+  # Create log file if verbose
+  log_file <- NULL
+  if (verbose) {
+    log_file <- init_log_file("sweep_batch_parallel", "logs")
+    write_log(log_file, paste("Starting parallel batch with", nrow(parameter_df), 
+                              "parameter sets using", n_cores, "cores"))
+  }
   
   # Set up parallel backend
   cl <- makeCluster(n_cores)
   registerDoParallel(cl)
   
+  # Create a temporary log directory for parallel processes if needed
+  temp_log_dir <- "logs/temp_parallel"
+  if (verbose) {
+    if (!dir.exists(temp_log_dir)) {
+      dir.create(temp_log_dir, recursive = TRUE, showWarnings = FALSE)
+    }
+    write_log(log_file, paste("Temporary logs will be stored in", temp_log_dir))
+  }
+  
   # Export necessary variables and functions to the cluster
   clusterExport(cl, varlist = c("create_vector_list", "shooting_method", 
-                                "forward_backward_sweep"), 
+                                "forward_backward_sweep", "init_log_file", "write_log",
+                                "timestamp", "temp_log_dir", "verbose"), 
                 envir = environment())
   
   # Also export packages needed by worker functions
@@ -393,33 +406,75 @@ run_multiple_sweeps_parallel <- function(parameter_df,
   results_list <- foreach(i = seq_len(nrow(parameter_df)), 
                           .packages = c("dplyr", "tidyr"),
                           .export = c("create_vector_list", "shooting_method", 
-                                      "forward_backward_sweep")) %dopar% {
+                                      "forward_backward_sweep", "init_log_file", "write_log")) %dopar% {
                                         
                                         # Create a run ID for this iteration
                                         run_id <- paste0("run_", timestamp, "_", i)
                                         
+                                        # Create per-process log file if verbose
+                                        process_log_file <- NULL
+                                        if (verbose) {
+                                          process_log_file <- file.path(temp_log_dir, paste0("process_", run_id, ".log"))
+                                          cat(paste("Starting run", run_id, "\n"), file = process_log_file)
+                                        }
+                                        
                                         # Extract current parameter set
                                         current_params <- parameter_df[i, , drop = FALSE]
                                         
-                                        # Create vector list for this specific parameter set
-                                        vector_list <- create_vector_list(
-                                          parameter_df = current_params,
-                                          emissions_df = emissions_df,
-                                          economic_df = economic_df,
-                                          scenario = scenario
-                                        )
-                                        
-                                        # Run either forward_backward_sweep or shooting_method
-                                        #result <- forward_backward_sweep(current_params, vector_list)
-                                        result <- shooting_method(current_params, vector_list)
-                                        
-                                        # Add run_id and parameters to result
-                                        result$run_id <- run_id
-                                        result$parameters <- current_params
+                                        # Try-catch block to handle errors gracefully
+                                        tryCatch({
+                                          # Create vector list for this specific parameter set
+                                          vector_list <- create_vector_list(
+                                            parameter_df = current_params,
+                                            emissions_df = emissions_df,
+                                            economic_df = economic_df,
+                                            scenario = scenario
+                                          )
+                                          
+                                          # Run either forward_backward_sweep or shooting_method
+                                          # result <- forward_backward_sweep(current_params, vector_list)
+                                          result <- shooting_method(current_params, vector_list, process_log_file)
+                                          
+                                          # Add run_id and parameters to result
+                                          result$run_id <- run_id
+                                          result$parameters <- current_params
+                                          result$scenario <- scenario
+                                          
+                                          # Log success
+                                          if (verbose) {
+                                            cat(paste("Run", run_id, "completed successfully", "\n"), 
+                                                file = process_log_file, append = TRUE)
+                                          }
+                                          
+                                          return(result)
+                                          
+                                        }, error = function(e) {
+                                          # Create error result
+                                          error_result <- list(
+                                            run_id = run_id,
+                                            parameters = current_params,
+                                            scenario = scenario,
+                                            error = TRUE,
+                                            error_message = as.character(e),
+                                            error_call = deparse(e$call)
+                                          )
+                                          
+                                          # Log error
+                                          if (verbose) {
+                                            cat(paste("Run", run_id, "failed:", as.character(e), "\n"), 
+                                                file = process_log_file, append = TRUE)
+                                          }
+                                          
+                                          return(error_result)
+                                        }) -> result
                                         
                                         # Optionally save intermediate result
                                         if(save_intermediate) {
                                           saveRDS(result, file = paste0("result_", run_id, ".rds"))
+                                          if (verbose) {
+                                            cat(paste("Saved intermediate result for run", run_id, "\n"), 
+                                                file = process_log_file, append = TRUE)
+                                          }
                                         }
                                         
                                         return(result)
@@ -430,6 +485,39 @@ run_multiple_sweeps_parallel <- function(parameter_df,
   
   # Name each element in results_list according to run_id
   names(results_list) <- paste0("run_", timestamp, "_", seq_len(nrow(parameter_df)))
+  
+  # Collect and consolidate log files if verbose
+  if (verbose) {
+    # Count successful and failed runs
+    successful_runs <- sum(sapply(results_list, function(r) !r$error))
+    failed_runs <- sum(sapply(results_list, function(r) r$error))
+    
+    write_log(log_file, paste("Parallel batch completed:", successful_runs, 
+                              "successful out of", length(results_list), "total runs"))
+    
+    # Log failed run IDs and reasons
+    if (failed_runs > 0) {
+      write_log(log_file, "Failed runs:")
+      for (result in results_list) {
+        if (result$error) {
+          write_log(log_file, paste("  -", result$run_id, ":", result$error_message))
+        }
+      }
+    }
+    
+    # Optionally consolidate all process logs into the main log
+    write_log(log_file, "\nProcess logs consolidated below:\n" + 
+                "---------------------------------\n")
+    
+    # Read and append each process log
+    process_logs <- list.files(temp_log_dir, pattern = paste0("process_run_", timestamp), 
+                               full.names = TRUE)
+    for (process_log in process_logs) {
+      process_id <- gsub(".*process_(run_[^.]+)\\.log", "\\1", process_log)
+      write_log(log_file, paste("\nLog for", process_id, ":"))
+      write_log(log_file, paste(readLines(process_log), collapse = "\n"))
+    }
+  }
   
   return(results_list)
 }
