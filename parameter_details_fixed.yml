@@ -6,6 +6,14 @@
 co2_conc_preind: 280 # Preindustrial CO2 concentration (ppm)
 co2_target_2100: 450 # CO2 emissions volume at 2100 to reach 1.5°C target (based on TCRE of 0.45)
 clim_temp_init: 1.2 # Initial global temperature anomaly (°C above pre-industrial, at 2020)
+tcre: 0.45 # Transient climate response to CO2 emissions
+
+# === Economic Parameters ===
+
+econ_dam_pct: 0.05 # proportion of GWP reduced by climate change
+disc_rate: 0.05 # future discounting 
+cost_mitig_unit: 0.300  # cost per Gt, in trillion $
+cost_remov_unit: 1.200  # cost per Gt, in trillion $
 
 # === Model Configuration ===
 # These parameters control model behavior rather than physical properties
@@ -16,13 +24,3 @@ exp_temp_anom: 2 # Temperature anomaly exponent
 trans_cond: 0 # default transversality condition
 trans_low: 0 # low value for shooting method transversality
 trans_high: 5 # hight value for shooting method transversality
-
-# === LHS Parameters ===
-
-# Parameters selected using latin hypercube sampling
-
-#econ_dam_pct: 0.05 # proportion of GWP reduced by climate change
-#disc_rate: 0.05 # future discounting 
-#cost_mitig_unit: 0.300  # cost per Gt, in trillion $
-#cost_remov_unit: 1.200  # cost per Gt, in trillion $
-#tcre: 0.45 # Transient climate response to CO2 emissions

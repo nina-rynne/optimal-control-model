@@ -320,7 +320,7 @@ forward_backward_sweep <- function(parameter_df,
     # Control variable limits
     mitigation_min <- 0
     removal_min <- 0
-    removal_max <- 100  # Could be parameterized based on technical limits
+    removal_max <- 200  # Could be parameterized based on technical limits
     
     # Extract required variables from parameter_df
     clim_temp_init <- parameter_df$clim_temp_init

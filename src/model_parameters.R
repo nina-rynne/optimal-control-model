@@ -167,7 +167,7 @@ add_fixed_parameters <- function(param_df,
 #' params_df <- create_params_dataframe(exclude_params = c("trans_cond", "trans_low"))
 #'
 
-create_params_dataframe <- function(config_file = "parameter_details.yml",
+create_params_dataframe <- function(config_file = "parameter_details_fixed.yml",
                                     include_sections = NULL,
                                     exclude_params = NULL,
                                     n_rows = 1) {
@@ -183,7 +183,7 @@ create_params_dataframe <- function(config_file = "parameter_details.yml",
   # Check if the file exists
   if (!file.exists(config_path)) {
     stop("Configuration file not found: ", config_path, 
-         "\nMake sure parameter_details.yml exists in your project root directory.")
+         "\nMake sure parameter_details_fixed.yml exists in your project root directory.")
   }
   
   # Read the YAML file

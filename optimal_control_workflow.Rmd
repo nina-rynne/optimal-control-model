@@ -9,7 +9,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 #' @title Full Workflow for Climate Optimal Control
 #' @description
-#' This workflow runs the complete optimal control solver for climate temperature overshoot modeling. 
+#' This workflow runs the complete optimal control solver for climate temperature overshoot modelling. 
 #' It loads necessary data, generates parameter sets, and runs the optimal control algorithm
 #'
 #' @author Nina Rynne
@@ -46,6 +46,7 @@ library(ggplot2)   # Data visualization
 library(cowplot)   # Plot arrangement
 library(patchwork) # Plot composition
 library(Cairo)     # PDF export
+
 
 ```
 
@@ -87,7 +88,7 @@ economic_df <- interpolate_ssp_economic(
 source(here::here("src", "latin_hypercube_sampling.R"))
 
 # USER CHOICE: Change 100 to desired number of parameter sets to generate
-lhs_parameter_df <- generate_lhs_samples(50)
+lhs_parameter_df <- generate_lhs_samples(1)
 
 ```
 
@@ -98,12 +99,12 @@ lhs_parameter_df <- generate_lhs_samples(50)
 
 source(here::here("src", "model_parameters.R"))
 
-parameter_df <- add_fixed_parameters(lhs_parameter_df)
+#parameter_df <- add_fixed_parameters(lhs_parameter_df)
 
-# Alternative: Use predefined parameter set instead of LHS samples, requires updated
-# yaml parameters file
+# Alternative: Use predefined parameter set instead of LHS samples, 
+# NOTE: requires changes to yaml parameters file
 # Uncomment the following line to use fixed parameters instead:
-# parameter_df <- create_params_dataframe()
+parameter_df <- create_params_dataframe()
 
 
 ```
@@ -118,7 +119,7 @@ source(here::here("src", "forward_backward_sweep.R"))
 source(here::here("src", "shooting_method.R"))
 
 # USER CHOICE: Set the SSP scenario to analyze
-scenario <- "SSP3-Baseline"
+scenario <- "SSP5-Baseline"
 
 # USER CHOICE: Run with or without parallel processing
 # Option 1: Serial processing (slower but simpler)
@@ -153,6 +154,55 @@ combined_dashboard <- create_combined_dashboard(oc_solution)
 
 
 ```
+```{r perturbation_analysis_call}
+
+# Source the perturbation analysis code
+source(here::here("src", "perturbation_analysis.R"))
+
+# Assuming 'oc_solution' contains your optimal control solution
+# and 'parameter_df' contains your parameter values
+
+# Create vector_list from the existing optimal solution
+solution <- oc_solution[[1]]
+temp_vector_list <- list(
+  # Time variables
+  years = solution$years,
+  years_rel = solution$years_rel,
+  n_years = solution$n_years,
+  
+  # State variables
+  baseline_annual_emissions = solution$baseline_annual_emissions,
+  temperature_anomaly = solution$temperature_anomaly,
+  cumulative_emissions = solution$cumulative_emissions,
+  
+  # Control variables and bounds
+  qty_mitig = solution$qty_mitig,
+  qty_remov = solution$qty_remov,
+  
+  # Adjoint variable
+  adjoint_var = solution$adjoint_var,
+  
+  # Cost components
+  baseline_annual_gwp = solution$baseline_annual_gwp,
+  cost_mitig_cumul = solution$cost_mitig_cumul,
+  cost_remov_cumul = solution$cost_remov_cumul,
+  cost_resid_cumul = solution$cost_resid_cumul,
+  cost_total_cumul = solution$cost_total_cumul
+)
+
+# Now use this vector_list in your perturbation analysis
+perturbation_results <- run_perturbation_analysis(
+  optimal_solution = oc_solution[[1]],
+  parameter_df = parameter_df,
+  vector_list = temp_vector_list,
+  save_path = "output/perturbation_analysis"
+)
+
+# View the summary of results
+perturbation_results$summary
+
+```
+
 
 ```{r save_parameters, eval=FALSE, include=FALSE}
 
