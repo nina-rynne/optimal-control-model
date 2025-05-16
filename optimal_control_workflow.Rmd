@@ -88,7 +88,7 @@ economic_df <- interpolate_ssp_economic(
 source(here::here("src", "latin_hypercube_sampling.R"))
 
 # USER CHOICE: Change 100 to desired number of parameter sets to generate
-lhs_parameter_df <- generate_lhs_samples(1)
+lhs_parameter_df <- generate_lhs_samples(10)
 
 ```
 
@@ -102,7 +102,6 @@ source(here::here("src", "model_parameters.R"))
 #parameter_df <- add_fixed_parameters(lhs_parameter_df)
 
 # Alternative: Use predefined parameter set instead of LHS samples, 
-# NOTE: requires changes to yaml parameters file
 # Uncomment the following line to use fixed parameters instead:
 parameter_df <- create_params_dataframe()
 
@@ -119,7 +118,7 @@ source(here::here("src", "forward_backward_sweep.R"))
 source(here::here("src", "shooting_method.R"))
 
 # USER CHOICE: Set the SSP scenario to analyze
-scenario <- "SSP5-Baseline"
+scenario <- "SSP3-Baseline"
 
 # USER CHOICE: Run with or without parallel processing
 # Option 1: Serial processing (slower but simpler)

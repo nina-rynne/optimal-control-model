@@ -20,7 +20,7 @@ library(ggplot2)  # For plotting (if needed)
 
 ```
 
-```{r data_preparation_test}
+```{r data_preparation_test, eval=FALSE, include=FALSE}
 
 # Source the data preparation functions
 source(here::here("src", "data_preparation.R"))
@@ -83,7 +83,7 @@ cat("\nTest script completed.\n")
 
 ```
 
-```{r experimental_design_test}
+```{r experimental_design_test, eval=FALSE, include=FALSE}
 # This script tests the functionality of the generate_lhs_samples function
 # from the experimental_design.R script in the src directory
 
@@ -210,7 +210,7 @@ cat("\nAll tests completed.\n")
 
 ```
 
-```{r model_parameters_test}
+```{r model_parameters_test, eval=FALSE, include=FALSE}
 
 #' @title Test Script for Model Parameters Functions
 #' @description 
@@ -390,7 +390,7 @@ cat("- Error handling for invalid inputs is appropriate\n\n")
 
 ```
 
-```{r optimal_control_test}
+```{r optimal_control_test, eval=FALSE, include=FALSE}
 
 #' @title Run Optimal Control Simulations for Climate Temperature Overshoot
 #' @description
@@ -534,9 +534,186 @@ cat("Simulation complete. Results saved to the results and plots directories.\n"
 
 ```
 
-```{r test_shooting_method}
+```{r test_shooting_method, eval=FALSE, include=FALSE}
 
 
+
+```
+
+
+```{r pull_vectors, eval=FALSE, include=FALSE}
+
+# Assuming your list is called "my_list"
+# This will extract a vector from a nested list and save it as a CSV
+
+# Define the path to access the specific vector
+# For example, if your vector is in my_list$sublist$subsublist$vector_name
+main_list <- "oc_solution"
+first_level <- "run_20250429_133128_1"
+vector_name <- "baseline_annual_emissions"
+
+# Extract the vector
+extracted_vector <- main_list[[first_level]][[vector_name]]
+
+# Create a data frame from the vector
+# This handles both named vectors and unnamed vectors
+if(!is.null(names(extracted_vector))) {
+  df <- data.frame(
+    name = names(extracted_vector),
+    value = extracted_vector,
+    stringsAsFactors = FALSE
+  )
+} else {
+  df <- data.frame(value = extracted_vector)
+}
+
+# Define output path and filename
+output_file <- "test/baseline_annual_emissions.csv"
+
+# Write to CSV
+write.csv(df, file = output_file, row.names = FALSE)
+
+# Confirmation message
+cat("Vector", vector_name, "has been saved to", output_file, "\n")
+
+
+```
+
+```{r test_pull_vectors, eval=FALSE, include=FALSE}
+
+# Set the list and element names
+main_list <- "oc_solution"
+first_level <- "run_20250429_133128_1"
+vector_name <- "temperature_anomaly"
+
+# Load the list if it's not already in the environment
+if(!exists(main_list)) {
+  # If the list is stored in an .RData file, load it
+  # load("path/to/your/list.RData")
+  # Or if it's stored as an RDS file
+  # oc_solution <- readRDS("path/to/your/list.rds")
+}
+
+# Get the list object
+my_list <- get(main_list)
+
+# Create the test folder if it doesn't exist
+dir.create("test", showWarnings = FALSE)
+
+# Debug: Check if the first level exists
+if(first_level %in% names(my_list)) {
+  # Debug: Print structure of the first level to see available elements
+  cat("Structure of first level:\n")
+  print(names(my_list[[first_level]]))
+  
+  # Check if the vector exists directly in the first level
+  if(vector_name %in% names(my_list[[first_level]])) {
+    extracted_vector <- my_list[[first_level]][[vector_name]]
+    
+    # Create a data frame from the vector
+    df <- data.frame(value = extracted_vector)
+    
+    # Define output file with the test folder
+    output_file <- file.path("test", paste0(vector_name, ".csv"))
+    
+    # Write to CSV
+    write.csv(df, file = output_file, row.names = FALSE)
+    cat("Vector", vector_name, "has been saved to", output_file, "\n")
+  } else {
+    cat("Vector", vector_name, "not found in", first_level, "\n")
+    cat("Available vectors in this level:\n")
+    print(names(my_list[[first_level]]))
+  }
+} else {
+  cat("First level", first_level, "not found in", main_list, "\n")
+  cat("Available first levels:\n")
+  print(names(my_list))
+}
+
+```
+
+```{r cost_surface_plot, eval=FALSE, include=FALSE}
+
+# Define the formula as a function
+cost_function <- function(t, x) {
+  ((x^2) * 0.3) * (exp(-discount_rate * (t - t_0)))
+}
+
+# Create the cost matrix directly using outer
+cost_matrix <- outer(time_steps, units, cost_function)
+
+# Now use persp without transpose
+persp(x = time_steps, 
+      y = units, 
+      z = cost_matrix,  # No transpose needed with outer()
+      theta = 30, phi = 20,
+      col = "lightblue",
+      xlab = "Time Step", 
+      ylab = "Number of Units", 
+      zlab = "Cost",
+      main = "Cost Over Time and Units",
+      ticktype = "detailed")
+
+
+```
+
+
+```{r run_dynamic_programming}
+
+source(here::here("src", "dynamic_programming.R"))
+
+# Run dynamic programming
+dp_result <- climate_dynamic_programming(
+  parameter_df = parameter_df,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = scenario,
+  state_grid_size = 100,  # Increase for more precision
+  control_grid_size = 25  # Increase for more precise controls
+)
+
+# Create visualization
+dp_dashboard <- create_dp_dashboard(dp_result)
+
+```
+
+```{r run_nlp}
+
+# Source the NLP implementation
+source(here::here("src", "non_linear_programming.R"))
+
+# Run the optimized non-linear programming 
+nlp_result <- climate_nonlinear_programming(
+  parameter_df = parameter_df,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = scenario,
+  max_iterations = 300,  # Lower iterations for faster convergence
+  verbose = TRUE
+)
+
+# Create visualization
+nlp_dashboard <- create_nlp_dashboard(nlp_result)
+
+```
+
+```{r run_slsqp}
+
+# Source the SLSQP implementation
+source(here::here("src", "non_linear_programming.R"))
+
+# Run the optimized non-linear programming 
+nlp_result <- climate_slsqp_programming(
+  parameter_df = parameter_df,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = scenario,
+  max_iterations = 300,  # Lower iterations for faster convergence
+  verbose = TRUE
+)
+
+# Create visualization
+slsqp_dashboard <- create_nlp_dashboard(slsqp_result)
 
 ```
 
