@@ -30,14 +30,7 @@
 #'
 #' @dependencies
 #' Required packages: tidyverse, ggplot2, cowplot, patchwork, Cairo
-#' This module provides the following key functions:
-#' - create_temperature_plot: Creates a line plot of temperature anomalies over time
-#' - create_emissions_plot: Creates a line plot of cumulative emissions over time
-#' - create_mitigation_plot: Creates a line plot of GtCO2 mitigated over time
-#' - create_cdr_plot: Creates a line plot of CtCO2 removed over time
-#' - create_costs_plot: Creates a line plot of summed costs over time
-#' - create_adjoint_plot: Creates a line plot of adjoint variable over time
-#' 
+
 
 #' @title Create Temperature Anomaly Plot
 #' @description
@@ -344,6 +337,7 @@ create_cost_plot <- function(oc_solution){
 #'                 (default: FALSE)
 #'                   
 #' @return A ggplot object showing stacked average cumulative costs over time
+
 create_stacked_cost_plot <- function(oc_solution, normalize = FALSE) {
   # Extract and prepare data
   run_data <- tibble(
@@ -497,6 +491,7 @@ create_adjoint_plot <- function(oc_solution){
 #' 
 #' @param oc_solution List containing model output for different parameter sets
 #' @return A ggplot object showing temperature anomaly density over time
+
 create_temperature_density_plot <- function(oc_solution) {
   # Extract data as in the original function
   run_data <- tibble(
@@ -542,6 +537,7 @@ create_temperature_density_plot <- function(oc_solution) {
 #' 
 #' @param oc_solution List containing model output for different parameter sets
 #' @return A ggplot object showing cumulative emissions density over time
+
 create_emissions_density_plot <- function(oc_solution) {
   # Extract data as in the original function
   run_data <- tibble(
@@ -656,6 +652,7 @@ create_temperature_range_plot <- function(oc_solution) {
 #' @param line_size Line width for the median line (default: 1.0)
 #'                   
 #' @return A ggplot object showing temperature anomaly ranges over time
+
 create_temperature_envelope_plot <- function(oc_solution, 
                                              color_base = "steelblue",
                                              show_individual_lines = FALSE,
@@ -1340,112 +1337,12 @@ create_adjoint_spaghetti_plot <- function(oc_solution,
   return(plot_adjoint)
 }
 
-### --------- TEMPERATURE PLOT SAMPLES --------- ###
 
-create_temperature_simple_plot <- function(oc_solution, 
-                                           color_base = "steelblue") {
-  # Extract and prepare data (same as before)
-  run_data <- tibble(
-    run_id = names(oc_solution),
-    run_list = oc_solution
-  ) %>%
-    filter(str_detect(run_id, "^run_"))
-  
-  temperature_data <- run_data %>%
-    mutate(
-      years = map(run_list, "years"),
-      temp_anomaly = map(run_list, "temperature_anomaly")
-    ) %>%
-    select(run_id, years, temp_anomaly) %>%
-    unnest(cols = c(years, temp_anomaly))
-  
-  # Calculate summary statistics
-  temp_summary <- temperature_data %>%
-    group_by(years) %>%
-    summarize(
-      min_val = min(temp_anomaly),
-      max_val = max(temp_anomaly),
-      median_val = median(temp_anomaly),
-      .groups = "drop"
-    )
-  
-  # Create a simple plot with just median line and min-max band
-  plot_temperature <- ggplot(temp_summary, aes(x = years)) +
-    # Reference line at zero
-    geom_hline(yintercept = 0, color = "gray70", linewidth = 0.3) +
-    # Min-max shaded area
-    geom_ribbon(aes(ymin = min_val, ymax = max_val), 
-                fill = color_base, alpha = 0.2) +
-    # Median line
-    geom_line(aes(y = median_val), 
-              color = color_base, linewidth = 1) +
-    # Simple theme
-    theme_minimal() +
-    theme(
-      panel.grid.minor = element_blank(),
-      panel.grid.major = element_line(color = "gray95"),
-      panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5)
-    ) +
-    labs(
-      x = "Year",
-      y = "Temperature Anomaly (°C)"
-    )
-  
-  return(plot_temperature)
-}
-
-create_temperature_ci_plot <- function(oc_solution, 
-                                       color_base = "steelblue") {
-  # Same data preparation steps as before
-  run_data <- tibble(
-    run_id = names(oc_solution),
-    run_list = oc_solution
-  ) %>%
-    filter(str_detect(run_id, "^run_"))
-  
-  temperature_data <- run_data %>%
-    mutate(
-      years = map(run_list, "years"),
-      temp_anomaly = map(run_list, "temperature_anomaly")
-    ) %>%
-    select(run_id, years, temp_anomaly) %>%
-    unnest(cols = c(years, temp_anomaly))
-  
-  # Calculate summary statistics using 95% confidence interval
-  temp_summary <- temperature_data %>%
-    group_by(years) %>%
-    summarize(
-      median_val = median(temp_anomaly),
-      lower_ci = quantile(temp_anomaly, 0.025),  # 2.5 percentile
-      upper_ci = quantile(temp_anomaly, 0.975),  # 97.5 percentile
-      .groups = "drop"
-    )
-  
-  # Create the plot
-  plot_temperature <- ggplot(temp_summary, aes(x = years)) +
-    # Reference line at zero
-    geom_hline(yintercept = 0, color = "gray70", linewidth = 0.3) +
-    # 95% CI band
-    geom_ribbon(aes(ymin = lower_ci, ymax = upper_ci), 
-                fill = color_base, alpha = 0.2) +
-    # Median line
-    geom_line(aes(y = median_val), 
-              color = color_base, linewidth = 1) +
-    # Simple theme
-    theme_minimal() +
-    theme(
-      panel.grid.minor = element_blank(),
-      panel.grid.major = element_line(color = "gray95"),
-      panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5)
-    ) +
-    labs(
-      x = "Year",
-      y = "Temperature Anomaly (°C)"
-    )
-  
-  return(plot_temperature)
-}
-
+#' @title Create Temperature Anomaly Spaghetti Plot
+#' @description
+#' Creates a spaghetti plot visualizing temperature anomaly over time with all individual
+#' runs shown as faint background lines, and median, min, and max as thicker guide lines.
+#' 
 create_temperature_spaghetti_plot <- function(oc_solution, 
                                               color_base = "steelblue",
                                               alpha_background = 0.1,
@@ -1516,60 +1413,6 @@ create_temperature_spaghetti_plot <- function(oc_solution,
   
   return(plot_temperature)
 }
-
-create_temperature_iqr_plot <- function(oc_solution, 
-                                        color_base = "steelblue") {
-  # Same data preparation steps
-  run_data <- tibble(
-    run_id = names(oc_solution),
-    run_list = oc_solution
-  ) %>%
-    filter(str_detect(run_id, "^run_"))
-  
-  temperature_data <- run_data %>%
-    mutate(
-      years = map(run_list, "years"),
-      temp_anomaly = map(run_list, "temperature_anomaly")
-    ) %>%
-    select(run_id, years, temp_anomaly) %>%
-    unnest(cols = c(years, temp_anomaly))
-  
-  # Calculate summary statistics - just median and IQR
-  temp_summary <- temperature_data %>%
-    group_by(years) %>%
-    summarize(
-      median_val = median(temp_anomaly),
-      q25 = quantile(temp_anomaly, 0.25),
-      q75 = quantile(temp_anomaly, 0.75),
-      .groups = "drop"
-    )
-  
-  # Create the plot
-  plot_temperature <- ggplot(temp_summary, aes(x = years)) +
-    # Reference line at zero
-    geom_hline(yintercept = 0, color = "gray70", linewidth = 0.3) +
-    # Interquartile range
-    geom_ribbon(aes(ymin = q25, ymax = q75), 
-                fill = color_base, alpha = 0.3) +
-    # Median line
-    geom_line(aes(y = median_val), 
-              color = color_base, linewidth = 1) +
-    # Simple theme
-    theme_minimal() +
-    theme(
-      panel.grid.minor = element_blank(),
-      panel.grid.major = element_line(color = "gray95"),
-      panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5)
-    ) +
-    labs(
-      x = "Year",
-      y = "Temperature Anomaly (°C)"
-    )
-  
-  return(plot_temperature)
-}
-
-
 
 
 #' @title Create Combined Model Output Dashboard

@@ -197,60 +197,6 @@ create_vector_list <- function(parameter_df,
 #'         for a specific parameter set. Each result is tagged with a unique run_id.
 #'
 
-old_run_multiple_sweeps <- function(parameter_df, 
-                                emissions_df,
-                                economic_df,
-                                scenario,
-                                save_intermediate = FALSE,
-                                verbose = FALSE) {
-  
-  # Create a timestamp for this batch of runs
-  timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
-  
-  # Use lapply to process each parameter set
-  results_list <- lapply(seq_len(nrow(parameter_df)), function(i) {
-    
-    # Create a run ID for this iteration that includes the timestamp
-    run_id <- paste0("run_", timestamp, "_", i)
-    
-    # Extract current parameter set
-    current_params <- parameter_df[i, , drop = FALSE]
-    
-    # Create vector list for this specific parameter set
-    vector_list <- create_vector_list(
-      parameter_df = current_params,
-      emissions_df = emissions_df,
-      economic_df = economic_df,
-      scenario = scenario
-    )
-    
-    # Run either forward_backward_sweep or shooting_method. Use only one.
-    result <- forward_backward_sweep(current_params, vector_list)
-    #result <- shooting_method(current_params, vector_list)
-    
-    # Add run_id to result
-    result$run_id <- run_id
-    
-    # Add parameters to result
-    result$parameters <- current_params
-    
-    # Optionally save intermediate result
-    if(save_intermediate) {
-      saveRDS(result, file = paste0("result_", run_id, ".rds"))
-    }
-    
-    return(result)
-  })
-  
-  # Name each element in results_list according to run_id
-  names(results_list) <- paste0("run_", timestamp, "_", seq_len(nrow(parameter_df)))
-  
-  return(results_list)
-}
-
-###----- ERROR HANDLING VERSION -----###
-
-# Update for run_multiple_sweeps function
 run_multiple_sweeps <- function(parameter_df, 
                                 emissions_df,
                                 economic_df,
@@ -590,6 +536,7 @@ save_timestamped_solution <- function(solution, prefix, scenario, assign_global 
 #' kkt_results <- verify_kkt_conditions(result$qty_mitig, result$qty_remov, 
 #'                                      result$adjoint_var, parameter_df,
 #'                                      result$baseline_annual_emissions)
+
 verify_kkt_conditions <- function(qty_mitig, qty_remov, adjoint_var, parameter_df,
                                   baseline_annual_emissions, removal_max = 200) {
   # Extract required parameters
