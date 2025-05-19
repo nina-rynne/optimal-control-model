@@ -46,42 +46,18 @@
 
 shooting_method <- function(parameter_df,
                             vector_list,
-                            log_file = NULL) {
-  
+                            log_file = NULL) {  # Add log_file parameter with NULL default
   # Create result structure with an error field
   result <- list(
     error = FALSE,
     error_message = NULL
   )
   
-  # Validation checks
-  if (is.null(parameter_df) || !is.data.frame(parameter_df)) {
-    result$error <- TRUE
-    result$error_message <- "Invalid parameter data frame provided"
-    return(result)
-  }
-  
-  if (is.null(vector_list) || !is.list(vector_list)) {
-    result$error <- TRUE
-    result$error_message <- "Invalid vector list provided"
-    return(result)
-  }
-  
-  # Check required parameters
-  required_params <- c("tcre", "clim_temp_init", "trans_low", "trans_high", "co2_target_2100")
-  missing_params <- required_params[!required_params %in% names(parameter_df)]
-  if (length(missing_params) > 0) {
-    result$error <- TRUE
-    result$error_message <- paste("Missing required parameters:", 
-                                  paste(missing_params, collapse = ", "))
-    return(result)
-  }
-  
   # Wrap the calculation in a try-catch to handle unexpected errors
   tryCatch({
     # Algorithm settings
     convergence_tolerance <- 0.001
-    converged <- FALSE
+    converged = FALSE
     max_iterations <- 1e4
     iteration <- 0
     temperature_target <- 1.5
@@ -92,7 +68,6 @@ shooting_method <- function(parameter_df,
     trans_low <- parameter_df$trans_low
     trans_high <- parameter_df$trans_high
     co2_target_2100 <- parameter_df$co2_target_2100
-    #co2_target_2100 <- ((temperature_target - clim_temp_init) / tcre) * 1000
     
     # Log iteration start if log file provided
     if (!is.null(log_file)) {
@@ -125,25 +100,15 @@ shooting_method <- function(parameter_df,
     # Calculate deviation from target
     emission_gap_high <- utils::tail(result_high$cumulative_emissions, 1) - co2_target_2100
     
-    # Check if bounds are suitable
-    if (sign(emission_gap_low) == sign(emission_gap_high)) {
-      result$error <- TRUE
-      result$error_message <- paste(
-        "Solution may not exist in specified bounds. Low gap:", emission_gap_low,
-        "High gap:", emission_gap_high
-      )
-      return(result)
-    }
-    
     # Main secant iteration loop
-    while (!is.na(converged) && !converged && !is.na(iteration) && iteration < max_iterations) {
+    while (!is.na(converged) && !converged && 
+           !is.na(iteration) && iteration < max_iterations) {
       iteration <- iteration + 1
       
       # Also add this inside the loop to check for NAs:
       if (any(is.na(c(converged, iteration)))) {
-        result$error <- TRUE
-        result$error_message <- "NA values detected in convergence check"
-        return(result)
+        warning("NA values detected in convergence check. Stopping iteration.")
+        break
       }
       
       # Ensure we're working with the better approximation
@@ -159,13 +124,6 @@ shooting_method <- function(parameter_df,
       }
       
       # Calculate secant method step
-      # Avoid division by zero
-      if (abs(emission_gap_high - emission_gap_low) < 1e-10) {
-        result$error <- TRUE
-        result$error_message <- "Division by zero in secant method"
-        return(result)
-      }
-      
       adj_step <- emission_gap_low * (trans_high - trans_low) / (emission_gap_high - emission_gap_low)
       
       # Update values for next iteration
@@ -174,16 +132,15 @@ shooting_method <- function(parameter_df,
       trans_low <- trans_low - adj_step
       
       # Evaluate at new point
-      result_current <- forward_backward_sweep(parameter_df, vector_list, trans_low)
+      result <- forward_backward_sweep(parameter_df, vector_list, trans_low)
       
       # Check if forward_backward_sweep returned an error
-      if (result_current$error) {
-        result$error <- TRUE
-        result$error_message <- paste("Iteration", iteration, "failed:", result_current$error_message)
+      if (result$error) {
+        result$error_message <- paste("Iteration", iteration, "failed:", result$error_message)
         return(result)
       }
       
-      emission_gap_low <- utils::tail(result_current$cumulative_emissions, 1) - co2_target_2100
+      emission_gap_low <- tail(result$cumulative_emissions, 1) - co2_target_2100
       
       # Log progress if log file provided
       if (!is.null(log_file)) {
@@ -192,24 +149,12 @@ shooting_method <- function(parameter_df,
       }
       
       # Check convergence
-      if(abs(emission_gap_low) <= convergence_tolerance) {
+      if(abs(emission_gap_low) <= convergence_tolerance || iteration >= max_iterations) {
         converged <- TRUE
       }
     }
     
-    # Check if we hit max iterations without converging
-    if (iteration >= max_iterations && !converged) {
-      result$error <- TRUE
-      result$error_message <- paste("Failed to converge after", max_iterations, 
-                                    "iterations. Best emission gap:", emission_gap_low)
-      return(result)
-    }
-    
-    # If we've reached here, we have a successful result
-    # Build the complete result structure from result_current
-    result <- result_current
-    
-    # Add shooting method specific information
+    # Add shooting method specific information to result
     result$shooting_iterations <- iteration
     result$shooting_converged <- converged
     result$emission_gap <- emission_gap_low

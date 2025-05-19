@@ -300,10 +300,10 @@ run_multiple_sweeps_parallel <- function(parameter_df,
                                          verbose = FALSE) {
   
   # Load required packages for parallel processing
-#  library(parallel)
-#  library(foreach)
-#  library(doParallel)
-#  library(iterators)
+  #  library(parallel)
+  #  library(foreach)
+  #  library(doParallel)
+  #  library(iterators)
   
   # Determine number of cores to use
   if (is.null(n_cores)) {
@@ -337,9 +337,8 @@ run_multiple_sweeps_parallel <- function(parameter_df,
   }
   
   # Export necessary variables and functions to the cluster
-  clusterExport(cl, varlist = c("create_vector_list", "shooting_method_kkt", 
-                                "forward_backward_sweep_kkt", "verify_kkt_conditions", 
-                                "check_optimality_conditions", "init_log_file", "write_log",
+  clusterExport(cl, varlist = c("create_vector_list", "shooting_method", 
+                                "forward_backward_sweep", "init_log_file", "write_log",
                                 "timestamp", "temp_log_dir", "verbose"), 
                 envir = environment())
   
@@ -352,8 +351,8 @@ run_multiple_sweeps_parallel <- function(parameter_df,
   # Use foreach for parallel execution
   results_list <- foreach(i = seq_len(nrow(parameter_df)), 
                           .packages = c("dplyr", "tidyr"),
-                          .export = c("create_vector_list", "shooting_method_kkt", 
-                                      "forward_backward_sweep_kkt", "init_log_file", "write_log")) %dopar% {
+                          .export = c("create_vector_list", "shooting_method", 
+                                      "forward_backward_sweep", "init_log_file", "write_log")) %dopar% {
                                         
                                         # Create a run ID for this iteration
                                         run_id <- paste0("run_", timestamp, "_", i)
@@ -378,9 +377,9 @@ run_multiple_sweeps_parallel <- function(parameter_df,
                                             scenario = scenario
                                           )
                                           
-                                          # Run either forward_backward_sweep_kkt or shooting_method_kkt
-                                          # result <- forward_backward_sweep_kkt(current_params, vector_list)
-                                          result <- shooting_method_kkt(current_params, vector_list, process_log_file)
+                                          # Run either forward_backward_sweep or shooting_method
+                                          # result <- forward_backward_sweep(current_params, vector_list)
+                                          result <- shooting_method(current_params, vector_list, process_log_file)
                                           
                                           # Add run_id and parameters to result
                                           result$run_id <- run_id
