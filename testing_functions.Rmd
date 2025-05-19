@@ -717,6 +717,27 @@ slsqp_dashboard <- create_nlp_dashboard(slsqp_result)
 
 ```
 
+```{r extract_data_for_testing}
+
+# Extract the vectors from vector_list
+years <- vector_list$years
+baseline_annual_emissions <- vector_list$baseline_annual_emissions
+baseline_annual_gwp <- vector_list$baseline_annual_gwp
+
+# Create a dataframe with these vectors
+df <- data.frame(
+  Year = years,
+  Baseline_Annual_Emissions = baseline_annual_emissions,
+  Baseline_Annual_GWP = baseline_annual_gwp
+)
+
+# View the dataframe
+head(df)
+
+# Save the dataframe as a CSV file
+write.csv(df, "baseline_emissions_data.csv", row.names = FALSE)
+
+```
 
 
 ```{r not_complete_code, eval=FALSE, include=FALSE}

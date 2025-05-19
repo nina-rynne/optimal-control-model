@@ -46,18 +46,42 @@
 
 shooting_method <- function(parameter_df,
                             vector_list,
-                            log_file = NULL) {  # Add log_file parameter with NULL default
+                            log_file = NULL) {
+  
   # Create result structure with an error field
   result <- list(
     error = FALSE,
     error_message = NULL
   )
   
+  # Validation checks
+  if (is.null(parameter_df) || !is.data.frame(parameter_df)) {
+    result$error <- TRUE
+    result$error_message <- "Invalid parameter data frame provided"
+    return(result)
+  }
+  
+  if (is.null(vector_list) || !is.list(vector_list)) {
+    result$error <- TRUE
+    result$error_message <- "Invalid vector list provided"
+    return(result)
+  }
+  
+  # Check required parameters
+  required_params <- c("tcre", "clim_temp_init", "trans_low", "trans_high", "co2_target_2100")
+  missing_params <- required_params[!required_params %in% names(parameter_df)]
+  if (length(missing_params) > 0) {
+    result$error <- TRUE
+    result$error_message <- paste("Missing required parameters:", 
+                                  paste(missing_params, collapse = ", "))
+    return(result)
+  }
+  
   # Wrap the calculation in a try-catch to handle unexpected errors
   tryCatch({
     # Algorithm settings
     convergence_tolerance <- 0.001
-    converged = FALSE
+    converged <- FALSE
     max_iterations <- 1e4
     iteration <- 0
     temperature_target <- 1.5
@@ -68,6 +92,7 @@ shooting_method <- function(parameter_df,
     trans_low <- parameter_df$trans_low
     trans_high <- parameter_df$trans_high
     co2_target_2100 <- parameter_df$co2_target_2100
+    #co2_target_2100 <- ((temperature_target - clim_temp_init) / tcre) * 1000
     
     # Log iteration start if log file provided
     if (!is.null(log_file)) {
@@ -75,7 +100,7 @@ shooting_method <- function(parameter_df,
     }
     
     # First evaluation at lower bound
-    result_low <- forward_backward_sweep_kkt(parameter_df, vector_list, trans_low)
+    result_low <- forward_backward_sweep(parameter_df, vector_list, trans_low)
     
     # Check if forward_backward_sweep returned an error
     if (result_low$error) {
@@ -184,7 +209,7 @@ shooting_method <- function(parameter_df,
     # Build the complete result structure from result_current
     result <- result_current
     
-    # Add shooting method specific information to result
+    # Add shooting method specific information
     result$shooting_iterations <- iteration
     result$shooting_converged <- converged
     result$emission_gap <- emission_gap_low
@@ -200,7 +225,6 @@ shooting_method <- function(parameter_df,
     ))
   })
 }
-
 
 #' @title Modified Shooting Method for Climate Temperature Overshoot with KKT Verification
 #' @description
