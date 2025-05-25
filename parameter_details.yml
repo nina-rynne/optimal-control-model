@@ -14,8 +14,10 @@ exp_mitig: 2 # Mitigation cost exponent
 exp_remov: 2 # CDR cost exponent
 exp_temp_anom: 2 # Temperature anomaly exponent
 trans_cond: 0 # default transversality condition
-trans_low: -1000 # low value for shooting method transversality
-trans_high: 100 # hight value for shooting method transversality
+
+# Shooting method parameters for fixed endpoint approach
+lambda_low: -1000      # Lower bound for initial adjoint value
+lambda_high: 1000      # Upper bound for initial adjoint value 
 
 # === LHS Parameters ===
 

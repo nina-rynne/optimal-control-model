@@ -88,7 +88,7 @@ economic_df <- interpolate_ssp_economic(
 source(here::here("src", "latin_hypercube_sampling.R"))
 
 # USER CHOICE: Change 100 to desired number of parameter sets to generate
-lhs_parameter_df <- generate_lhs_samples(10)
+lhs_parameter_df <- generate_lhs_samples(500)
 
 ```
 

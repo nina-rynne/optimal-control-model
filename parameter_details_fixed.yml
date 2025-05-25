@@ -21,6 +21,13 @@ cost_remov_unit: 1.200  # cost per Gt, in trillion $
 exp_mitig: 2 # Mitigation cost exponent
 exp_remov: 2 # CDR cost exponent
 exp_temp_anom: 2 # Temperature anomaly exponent
-trans_cond: 0 # default transversality condition
-trans_low: 0 # low value for shooting method transversality
-trans_high: 5 # hight value for shooting method transversality
+
+# Existing shooting method parameters (for forward shooting)
+lambda_low: -50000      # Lower bound for initial adjoint value (forward shooting)
+lambda_high: 500000     # Upper bound for initial adjoint value (forward shooting)
+
+# NEW: Backward shooting method parameters
+lambda_terminal_low: -10000   # Lower bound for terminal adjoint value (backward shooting)
+lambda_terminal_high: 10000   # Upper bound for terminal adjoint value (backward shooting)
+
+
