@@ -54,11 +54,12 @@ forward_backward_sweep_shooting <- function(parameter_df, emissions_df, economic
   
   # Set terminal condition from shooting method
   adjoint_var[n_years] <- terminal_adjoint
+  cat("DEBUG: Set terminal λ =", terminal_adjoint, "at year", years[n_years], "\n")
   
   # Algorithm parameters
-  max_iterations <- 200  # Fewer iterations for shooting method calls
-  tolerance <- 0.01
-  update_weight <- 0.1   # More aggressive for faster convergence in shooting
+  max_iterations <- 500  # Fewer iterations for shooting method calls
+  tolerance <- 0.001
+  update_weight <- 0.05   # More aggressive for faster convergence in shooting
   
   # Forward-Backward Sweep Loop
   for (iter in 1:max_iterations) {
@@ -70,18 +71,34 @@ forward_backward_sweep_shooting <- function(parameter_df, emissions_df, economic
     prev_adjoint <- adjoint_var
     
     # === FORWARD SWEEP ===
-    cumulative_emissions[1] <- 0
-    for (i in 2:n_years) {
-      annual_net <- baseline_emissions[i-1] - qty_mitig[i-1] - qty_remov[i-1]
-      cumulative_emissions[i] <- cumulative_emissions[i-1] + annual_net * dt
+    for (i in 1:n_years) {
+      if (i == 1) {
+        # First year: start from zero and add first year's net emissions
+        annual_net <- baseline_emissions[i] - qty_mitig[i] - qty_remov[i]
+        cumulative_emissions[i] <- 0 + annual_net * dt
+      } else {
+        # Subsequent years: add to previous cumulative total
+        annual_net <- baseline_emissions[i] - qty_mitig[i] - qty_remov[i]
+        cumulative_emissions[i] <- cumulative_emissions[i-1] + annual_net * dt
+      }
     }
     
-    # Calculate temperature anomaly
+    # Calculate temperature anomaly based on cumulative emissions
     temperature_anomaly <- clim_temp_init + (cumulative_emissions / 1000) * tcre
+    
+    # Ensure temperature stays positive for power calculations
     temperature_anomaly <- pmax(temperature_anomaly, 0.1)
+    
+    # Check for temperature anomalies
+    if (any(!is.finite(temperature_anomaly))) {
+      cat("ERROR: Non-finite temperature values at iteration", iter, "\n")
+      break
+    }
     
     # === BACKWARD SWEEP ===
     # Keep terminal condition fixed (set by shooting method)
+    # In backward sweep, before the loop starts:
+    cat("DEBUG: Starting backward sweep with terminal λ =", adjoint_var[n_years], "\n")
     # Integrate backward from terminal condition
     for (i in (n_years-1):1) {
       j <- i  
@@ -103,6 +120,10 @@ forward_backward_sweep_shooting <- function(parameter_df, emissions_df, economic
       adjoint_var[j] <- adjoint_var[j+1] - adjoint_derivative * dt
     }
     
+    # At end of backward sweep:
+    cat("DEBUG: Final λ trajectory - first 5 years:", round(adjoint_var[1:5], 3), "\n")
+    cat("DEBUG: Final λ trajectory - last 5 years:", round(adjoint_var[(n_years-4):n_years], 3), "\n")
+    
     # === UPDATE CONTROLS ===
     new_mitig <- rep(0, n_years)
     new_remov <- rep(0, n_years)
@@ -123,7 +144,8 @@ forward_backward_sweep_shooting <- function(parameter_df, emissions_df, economic
       if (um_unconstrained <= 0) {
         new_mitig[i] <- 0
       } else if (um_unconstrained >= baseline_emissions[i]) {
-        new_mitig[i] <- baseline_emissions[i]
+        epsilon <- 0.01  # Small buffer to stay strictly below upper bound
+        new_mitig[i] <- baseline_emissions[i] - epsilon
       } else {
         new_mitig[i] <- um_unconstrained
       }
@@ -214,13 +236,13 @@ real_data_shooting_method <- function(parameter_df, emissions_df, economic_df, s
   cat("Target emissions:", target_emissions, "GtCO2\n\n")
   
   # Shooting method parameters
-  max_shooting_iterations <- 200  # Increased from 50
+  max_shooting_iterations <- 500  # Increased from 50
   shooting_tolerance <- 1.0  # 1 GtCO2 tolerance for terminal constraint
   
   # Initial bounds for terminal adjoint value
   # Start with wider bounds since we don't know the scale
-  lambda_low <- -1000
-  lambda_high <- 1000
+  lambda_low <- 0
+  lambda_high <- 5000
   
   cat("Starting shooting method...\n")
   cat("Initial lambda bounds: [", lambda_low, ",", lambda_high, "]\n")
@@ -364,7 +386,7 @@ test_step6_shooting <- function() {
   )
   
   scenario <- "SSP3-Baseline"
-  target <- 600
+  target <- 850
   
   # Run shooting method
   result <- real_data_shooting_method(parameter_df, emissions_df, economic_df, scenario, target)

@@ -63,7 +63,7 @@ create_step6_dashboard <- function(result_step6) {
   # 1. Emissions plot
   p1 <- ggplot(plot_data, aes(x = Year, y = Cumulative_Emissions)) +
     geom_line(color = "firebrick", linewidth = 1) +
-    geom_hline(yintercept = 600, linetype = "dashed", alpha = 0.7) +
+    geom_hline(yintercept = 650, linetype = "dashed", alpha = 0.7) +
     labs(title = "Cumulative Emissions", y = "GtCO2") +
     my_theme
   

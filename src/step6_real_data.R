@@ -113,10 +113,16 @@ real_data_full_model <- function(parameter_df, emissions_df, economic_df, scenar
     prev_adjoint <- adjoint_var
     
     # === FORWARD SWEEP ===
-    cumulative_emissions[1] <- 0
-    for (i in 2:n_years) {
-      annual_net <- baseline_emissions[i-1] - qty_mitig[i-1] - qty_remov[i-1]
-      cumulative_emissions[i] <- cumulative_emissions[i-1] + annual_net * dt
+    for (i in 1:n_years) {
+      if (i == 1) {
+        # First year: start from zero and add first year's net emissions
+        annual_net <- baseline_emissions[i] - qty_mitig[i] - qty_remov[i]
+        cumulative_emissions[i] <- 0 + annual_net * dt
+      } else {
+        # Subsequent years: add to previous cumulative total
+        annual_net <- baseline_emissions[i] - qty_mitig[i] - qty_remov[i]
+        cumulative_emissions[i] <- cumulative_emissions[i-1] + annual_net * dt
+      }
     }
     
     # Calculate temperature anomaly based on cumulative emissions
