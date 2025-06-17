@@ -114,8 +114,8 @@ create_step6_dashboard <- function(result_step6) {
 
 # Usage example:
 # Assuming you have result_step6 from running Step 6:
-# step6_dashboard <- create_step6_dashboard(result_step6)
-# print(step6_dashboard)
+step6_dashboard <- create_step6_dashboard(result_step6_shooting)
+print(step6_dashboard)
 
 # Optional: Save the plot
-# ggsave("step6_dashboard.png", step6_dashboard, width = 12, height = 8)
+ggsave("step6_dashboard.png", step6_dashboard, width = 12, height = 8)

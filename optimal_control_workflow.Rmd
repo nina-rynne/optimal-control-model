@@ -99,11 +99,11 @@ lhs_parameter_df <- generate_lhs_samples(500)
 
 source(here::here("src", "model_parameters.R"))
 
-#parameter_df <- add_fixed_parameters(lhs_parameter_df)
+parameter_df <- add_fixed_parameters(lhs_parameter_df)
 
 # Alternative: Use predefined parameter set instead of LHS samples, 
 # Uncomment the following line to use fixed parameters instead:
-parameter_df <- create_params_dataframe()
+#parameter_df <- create_params_dataframe()
 
 
 ```
