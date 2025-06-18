@@ -739,6 +739,1242 @@ write.csv(df, "baseline_emissions_data.csv", row.names = FALSE)
 
 ```
 
+```{r optimal_control_call}
+
+# TESTING FIXED ENDPOINT METHOD
+
+# Run the optimal control solution for specified scenario
+# This is the main computational step that solves the optimal control problem
+
+source(here::here("test", "optimal_control_V2.R"))
+source(here::here("test", "forward_backward_sweep_V2.R"))
+source(here::here("test", "forward_backward_sweep_V3.R"))
+source(here::here("test", "forward_integration.R"))
+source(here::here("test", "shooting_method_V2.R"))
+
+
+# USER CHOICE: Set the SSP scenario to analyze
+scenario <- "SSP3-Baseline"
+
+# USER CHOICE: Run with or without parallel processing
+# Option 1: Serial processing (slower but simpler)
+# oc_solution <- run_multiple_sweeps(parameter_df, emissions_df, economic_df, scenario)
+
+# Option 2: Parallel processing (faster, recommended for many parameter sets)
+#oc_solution <- run_multiple_sweeps_parallel(parameter_df, emissions_df, economic_df, scenario)
+
+# Option 3: FBS with BACKWARD shooting method
+oc_solution <- run_multiple_sweeps_parallel(parameter_df, emissions_df, economic_df, scenario)
+
+# Save results with timestamp for reproducibility
+save_timestamped_solution(oc_solution, "oc_solution", scenario)
+
+
+```
+
+```{r diagnostic}
+# Diagnostic code to understand your baseline emissions trajectory
+# Run this to understand what's happening with your model
+
+# Assuming you have your parameter_df and vector_list from before
+# Let's create a baseline scenario with NO controls (zero mitigation, zero removal)
+
+diagnostic_baseline <- function(parameter_df, vector_list) {
+  
+  # Extract basic info
+  baseline_annual_emissions <- vector_list$baseline_annual_emissions
+  years <- vector_list$years
+  n_years <- length(years)
+  
+  # Calculate cumulative emissions with NO CONTROLS
+  cumulative_baseline <- numeric(n_years)
+  cumulative_baseline[1] <- baseline_annual_emissions[1]
+  
+  for (i in 2:n_years) {
+    # No mitigation, no removal - just add baseline emissions
+    cumulative_baseline[i] <- cumulative_baseline[i-1] + baseline_annual_emissions[i-1]
+  }
+  
+  # Calculate temperature trajectory
+  clim_temp_init <- parameter_df$clim_temp_init
+  tcre <- parameter_df$tcre
+  temperature_baseline <- clim_temp_init + ((cumulative_baseline/1000) * tcre)
+  
+  # Print diagnostic information
+  cat("=== BASELINE SCENARIO DIAGNOSTICS ===\n")
+  cat("Time period:", min(years), "to", max(years), "\n")
+  cat("Number of years:", n_years, "\n\n")
+  
+  cat("Annual emissions (first 5 years):", head(baseline_annual_emissions, 5), "\n")
+  cat("Annual emissions (last 5 years):", tail(baseline_annual_emissions, 5), "\n\n")
+  
+  cat("Cumulative emissions by end year:", tail(cumulative_baseline, 1), "Gt\n")
+  cat("Your target:", parameter_df$co2_target_2100, "Gt\n")
+  cat("Gap (actual - target):", tail(cumulative_baseline, 1) - parameter_df$co2_target_2100, "Gt\n\n")
+  
+  cat("Final temperature anomaly:", tail(temperature_baseline, 1), "°C\n")
+  cat("Initial temperature anomaly:", clim_temp_init, "°C\n")
+  cat("Temperature increase:", tail(temperature_baseline, 1) - clim_temp_init, "°C\n\n")
+  
+  # Check if target is achievable
+  if (tail(cumulative_baseline, 1) < parameter_df$co2_target_2100) {
+    cat("❌ PROBLEM: Your baseline cumulative emissions (", 
+        round(tail(cumulative_baseline, 1), 1), 
+        " Gt) are LESS than your target (", parameter_df$co2_target_2100, " Gt)\n")
+    cat("This means you need NEGATIVE controls (more emissions, less removal) to reach the target.\n")
+    cat("Suggested fixes:\n")
+    cat("1. Lower your co2_target_2100 to something like", round(tail(cumulative_baseline, 1) * 0.8, 0), "\n")
+    cat("2. Or use NEGATIVE lambda bounds (try lambda_low = -10000, lambda_high = 0)\n")
+  } else {
+    cat("✅ Target appears achievable with positive controls\n")
+  }
+  
+  # Return data for plotting if needed
+  return(list(
+    years = years,
+    baseline_annual = baseline_annual_emissions,
+    cumulative_baseline = cumulative_baseline,
+    temperature_baseline = temperature_baseline,
+    final_cumulative = tail(cumulative_baseline, 1),
+    target = parameter_df$co2_target_2100,
+    gap = tail(cumulative_baseline, 1) - parameter_df$co2_target_2100
+  ))
+}
+
+# Run the diagnostic
+# diagnostic_result <- diagnostic_baseline(your_parameter_df, your_vector_list)
+
+# If you want to plot the baseline trajectory:
+plot_baseline_diagnostic <- function(diagnostic_result) {
+  par(mfrow = c(2, 2))
+  
+  # Annual emissions
+  plot(diagnostic_result$years, diagnostic_result$baseline_annual, 
+       type = "l", main = "Annual Baseline Emissions", 
+       xlab = "Year", ylab = "Gt CO2/year")
+  
+  # Cumulative emissions
+  plot(diagnostic_result$years, diagnostic_result$cumulative_baseline, 
+       type = "l", main = "Cumulative Baseline Emissions", 
+       xlab = "Year", ylab = "Gt CO2")
+  abline(h = diagnostic_result$target, col = "red", lty = 2, lwd = 2)
+  legend("topleft", c("Baseline", "Target"), col = c("black", "red"), lty = c(1, 2))
+  
+  # Temperature
+  plot(diagnostic_result$years, diagnostic_result$temperature_baseline, 
+       type = "l", main = "Temperature Anomaly", 
+       xlab = "Year", ylab = "°C above pre-industrial")
+  
+  # Gap over time
+  gap_over_time <- diagnostic_result$cumulative_baseline - diagnostic_result$target
+  plot(diagnostic_result$years, gap_over_time, 
+       type = "l", main = "Cumulative Gap from Target", 
+       xlab = "Year", ylab = "Gt CO2 (above target)")
+  abline(h = 0, col = "red", lty = 2)
+  
+  par(mfrow = c(1, 1))
+}
+
+# Example usage:
+# plot_baseline_diagnostic(diagnostic_result)
+```
+
+```{r diagnostic_call}
+diagnostic_result <- diagnostic_baseline(parameter_df, vector_list)
+
+```
+
+```{r simple_forecasts}
+
+# Replace your data import section with:
+simple_emissions <- data.frame(
+  Scenario = "SSP3-Baseline",
+  Model = "TEST", 
+  Region = "world",
+  Variable = "Emissions|CO2",
+  Unit = "Mt CO2/yr",
+  Year = seq(2020, 2100, by = 1),
+  Value = pmax(2000, 15000 - 100 * (seq(2020, 2100, by = 1) - 2020))
+)
+
+simple_economic <- data.frame(
+  Scenario = "SSP3-Baseline",
+  Model = "TEST",
+  Region = "world", 
+  Variable = "GDP",
+  Unit = "billion US$2005/yr",
+  Year = seq(2020, 2100, by = 1),
+  Value = 100000 + 2000 * (seq(2020, 2100, by = 1) - 2020)  # Growing economy
+)
+
+```
+
+```{r scale_test}
+# Use exactly your IPCC data structure but with simple, scaled values
+test1_emissions <- data.frame(
+  Scenario = "SSP3-Baseline",
+  Model = "TEST",
+  Region = "world", 
+  Variable = "Emissions|CO2",
+  Unit = "Mt CO2/yr",
+  Year = seq(2020, 2100, by = 1),
+  Value = rep(20000, 81)  # Constant 20 GtCO2/year (matches your IPCC scale)
+)
+
+test1_economic <- data.frame(
+  Scenario = "SSP3-Baseline", 
+  Model = "TEST",
+  Region = "world",
+  Variable = "GDP",
+  Unit = "trillion US$2005/yr", 
+  Year = seq(2020, 2100, by = 1),
+  Value = rep(100, 81)  # Constant 100 trillion (matches your IPCC scale)
+)
+
+oc_solution <- run_multiple_sweeps_parallel(parameter_df, test1_emissions, test1_economic, scenario)
+
+```
+
+```{r visuals_step6}
+
+source(here::here("src", "visualisation_step6_V2.R"))
+dashboard <- create_step6_dashboard(result_step6_shooting)
+print(dashboard)
+
+# Full path to save the file
+filepath <- here::here("figs", "step6_qanziam.pdf")
+    
+    # Save using Cairo device for better quality
+ggsave(filepath,
+       dashboard,
+       width = 190,
+       height = 260,
+       units = "mm",
+       device = cairo_pdf)
+    
+
+
+```
+
+```{r kkt_verification}
+
+# Source the verification script
+source(here::here("src", "verification2.R"))
+
+
+# Run verification on your shooting method result
+verification_report <- generate_kkt_report(
+  result = result_step6_shooting, 
+  parameter_df = parameter_df,
+  tolerance = 1e-2,
+  create_plots = TRUE
+)
+
+# Check overall result
+verification_report$overall$kkt_satisfied
+
+```
+```{r heat_map_contours}
+library(ggplot2)
+library(dplyr)
+library(viridis)
+
+#' Create Heatmap with Working Contour Lines
+create_peak_temperature_heatmap_fixed <- function(results_df, title_suffix = "") {
+  
+  # Filter for valid results
+  plot_data <- results_df %>%
+    filter(!is.na(peak_temperature)) %>%
+    mutate(
+      peak_temp_capped = pmin(peak_temperature, 8.0),
+      feasible_factor = ifelse(feasible, "Feasible", "Infeasible")
+    )
+  
+  if (nrow(plot_data) == 0) {
+    cat("No valid data for plotting\n")
+    return(NULL)
+  }
+  
+  # Check if data is on a regular grid (required for contours)
+  delay_x <- sort(unique(plot_data$mitigation_delay))
+  delay_y <- sort(unique(plot_data$cdr_delay))
+  
+  cat("Unique mitigation delays:", length(delay_x), "\n")
+  cat("Unique CDR delays:", length(delay_y), "\n")
+  cat("Expected grid points:", length(delay_x) * length(delay_y), "\n")
+  cat("Actual data points:", nrow(plot_data), "\n")
+  
+  # Create base heatmap
+  p1 <- ggplot(plot_data, aes(x = mitigation_delay, y = cdr_delay, fill = peak_temp_capped)) +
+    geom_tile() +
+    scale_fill_viridis_c(
+      name = "Peak\nTemperature\n(°C)",
+      option = "plasma",
+      direction = -1,
+      limits = c(min(plot_data$peak_temp_capped, na.rm = TRUE), 
+                 max(plot_data$peak_temp_capped, na.rm = TRUE))
+    ) +
+    labs(
+      title = paste("Peak Temperature Anomaly \nby Deployment Delay", title_suffix),
+      #subtitle = paste("Target emissions |", sum(plot_data$feasible, na.rm = TRUE), "feasible combinations"),
+      x = "\nMitigation Deployment Delay (years)",
+      y = "Carbon Dioxide Removal \nDeployment Delay (years)\n"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      plot.subtitle = element_text(size = 12),
+      axis.title = element_text(size = 12),
+      legend.title = element_text(size = 10),
+      panel.grid = element_blank()
+    ) +
+    coord_equal()
+  
+  # Method 1: Try basic geom_contour with error handling
+  tryCatch({
+    p1 <- p1 + 
+      geom_contour(aes(z = peak_temp_capped), 
+                   color = "white", 
+                   alpha = 0.6, 
+                   size = 0.7,
+                   bins = 8)  # Specify number of contour levels
+    cat("Basic contour lines added successfully\n")
+  }, error = function(e) {
+    cat("Basic contour failed:", e$message, "\n")
+  })
+  
+  # Method 2: Try with stat_contour and specific breaks
+  tryCatch({
+    temp_range <- range(plot_data$peak_temp_capped, na.rm = TRUE)
+    contour_breaks <- seq(temp_range[1], temp_range[2], length.out = 6)
+    
+    p1 <- p1 + 
+      stat_contour(aes(z = peak_temp_capped), 
+                   color = "white", 
+                   alpha = 0.7, 
+                   size = 0.4,
+                   breaks = contour_breaks)
+    cat("Stat_contour with breaks added successfully\n")
+  }, error = function(e) {
+    cat("Stat_contour failed:", e$message, "\n")
+  })
+  
+  # Add feasibility markers
+  infeasible_data <- plot_data %>% filter(!feasible)
+  
+  if (nrow(infeasible_data) > 0) {
+    p2 <- p1 + 
+      geom_point(data = infeasible_data, 
+                 aes(x = mitigation_delay, y = cdr_delay), 
+                 shape = 4, size = 2, color = "red", alpha = 0.8, 
+                 stroke = 1.5, inherit.aes = FALSE) +
+      labs(caption = "Red X marks indicate infeasible combinations (emission target not met)")
+  } else {
+    p2 <- p1
+  }
+  
+  print(p2)
+  return(list(plot = p2, data = plot_data))
+}
+
+# Alternative method using interpolation for smoother contours
+create_heatmap_with_interpolated_contours <- function(results_df, title_suffix = "") {
+  
+  plot_data <- results_df %>%
+    filter(!is.na(peak_temperature)) %>%
+    mutate(peak_temp_capped = pmin(peak_temperature, 8.0))
+  
+  if (nrow(plot_data) == 0) {
+    return(NULL)
+  }
+  
+  # Create interpolated grid for smoother contours
+  library(akima)  # You may need to install this: install.packages("akima")
+  
+  tryCatch({
+    # Create a finer interpolated grid
+    x_seq <- seq(min(plot_data$mitigation_delay), max(plot_data$mitigation_delay), length.out = 50)
+    y_seq <- seq(min(plot_data$cdr_delay), max(plot_data$cdr_delay), length.out = 50)
+    
+    # Interpolate
+    interp_result <- akima::interp(x = plot_data$mitigation_delay,
+                                   y = plot_data$cdr_delay,
+                                   z = plot_data$peak_temp_capped,
+                                   xo = x_seq,
+                                   yo = y_seq,
+                                   linear = TRUE)
+    
+    # Convert to dataframe
+    interp_df <- expand.grid(x = interp_result$x, y = interp_result$y) %>%
+      mutate(z = as.vector(interp_result$z)) %>%
+      filter(!is.na(z))
+    
+    # Create plot with original tiles and interpolated contours
+    p <- ggplot() +
+      geom_tile(data = plot_data, 
+                aes(x = mitigation_delay, y = cdr_delay, fill = peak_temp_capped)) +
+      geom_contour(data = interp_df, 
+                   aes(x = x, y = y, z = z), 
+                   color = "white", alpha = 0.7, size = 0.5, bins = 8) +
+      scale_fill_viridis_c(name = "Peak\nTemperature\n(°C)", option = "plasma", direction = -1) +
+      labs(title = paste("Peak Temperature with Interpolated Contours", title_suffix),
+           x = "Mitigation Deployment Delay (years)",
+           y = "CDR Deployment Delay (years)") +
+      theme_minimal() +
+      coord_equal()
+    
+    print(p)
+    return(list(plot = p, data = plot_data))
+    
+  }, error = function(e) {
+    cat("Interpolated contours failed:", e$message, "\n")
+    cat("Falling back to basic heatmap\n")
+    return(create_peak_temperature_heatmap_fixed(results_df, title_suffix))
+  })
+}
+
+# Simple method with text labels instead of contours
+create_heatmap_with_labels <- function(results_df, title_suffix = "") {
+  
+  plot_data <- results_df %>%
+    filter(!is.na(peak_temperature)) %>%
+    mutate(peak_temp_capped = pmin(peak_temperature, 8.0),
+           temp_label = sprintf("%.1f", peak_temp_capped))
+  
+  p <- ggplot(plot_data, aes(x = mitigation_delay, y = cdr_delay)) +
+    geom_tile(aes(fill = peak_temp_capped)) +
+    geom_text(aes(label = temp_label), size = 2.5, color = "white", fontface = "bold") +
+    scale_fill_viridis_c(name = "Peak\nTemperature\n(°C)", option = "plasma", direction = -1) +
+    labs(title = paste("Peak Temperature with Value Labels", title_suffix),
+         x = "Mitigation Deployment Delay (years)",
+         y = "CDR Deployment Delay (years)") +
+    theme_minimal() +
+    coord_equal()
+  
+  print(p)
+  return(list(plot = p, data = plot_data))
+}
+
+
+```
+
+
+
+```{r heat_map_plot}
+
+# Load previously saved results
+results_df <- read.csv("delayed_deployment_results_SSP3-Baseline_650GtCO2.csv")
+
+# Create the heatmap
+heatmap_result <- create_peak_temperature_heatmap(results_df, "- SSP3-Baseline")
+
+# Create additional plots
+additional_plots <- create_additional_plots(results_df)
+
+# Display summary
+cat("Loaded", nrow(results_df), "results\n")
+cat("Feasible combinations:", sum(results_df$feasible, na.rm = TRUE), "\n")
+
+# -----------------
+
+# Method 1: Fixed basic contours
+heatmap1 <- create_peak_temperature_heatmap_fixed(results_df)
+
+# Method 2: Interpolated contours (requires akima package)
+# install.packages("akima") # if needed
+heatmap2 <- create_heatmap_with_interpolated_contours(results_df, "- Interpolated")
+
+# Method 3: Text labels instead of contours  
+heatmap3 <- create_heatmap_with_labels(results_df, "- With Labels")
+
+# multi sweep dashboard
+source(here::here("src", "step6_multiple_sweeps.R"))
+dashboard <- create_combined_dashboard(multi_results$successful_runs)
+
+```
+
+```{r multi_sweep_dashboard}
+
+# After the sensitivity analysis completes
+dashboard_plot <- create_combined_dashboard(multi_results$successful_runs)
+
+```
+
+```{r shapleyx_output}
+
+source(here::here("src", "sensitivity_analysis.R"))
+
+# Load the script and run
+sensitivity_data <- extract_shapleyx_data(multi_results, "total_cost_sensitivity.csv")
+
+```
+
+
+```{r simple_optimal_control_test}
+
+# Simple test of optimal_control_solve function
+# This tests the core algorithm with a fixed terminal adjoint value
+
+# Source the core function
+source(here::here("src", "optimal_control_core.R"))
+
+# Create a simple parameter set for testing
+test_params <- data.frame(
+  cost_mitig_unit = 0.3,
+  cost_remov_unit = 1.2,
+  exp_mitig = 2,
+  exp_remov = 2,
+  exp_temp_anom = 2,
+  clim_temp_init = 1.2,
+  tcre = 0.45,
+  econ_dam_pct = 0.05,
+  disc_rate = 0.03,
+  co2_target_2100 = 650
+)
+
+# Create simple test data (if you don't have emissions_df and economic_df loaded)
+# Uncomment these lines if needed:
+# test_years <- 2020:2100
+# test_emissions <- data.frame(
+#   Year = test_years,
+#   Value = seq(40, 10, length.out = length(test_years))  # Declining emissions
+# )
+# test_economic <- data.frame(
+#   Year = test_years, 
+#   Value = seq(100, 200, length.out = length(test_years))  # Growing economy
+# )
+
+# Filter your existing data for SSP3-Baseline (or use test data above)
+test_emissions <- emissions_df %>% 
+  filter(Scenario == "SSP3-Baseline") %>%
+  arrange(Year)
+
+test_economic <- economic_df %>%
+  filter(Scenario == "SSP3-Baseline") %>% 
+  arrange(Year)
+
+# Test the core solve function with a reasonable terminal adjoint
+cat("Testing optimal_control_solve function...\n")
+
+test_result <- optimal_control_solve(
+  parameter_df = test_params,
+  emissions_df = test_emissions,
+  economic_df = test_economic,
+  target_emissions = test_params$co2_target_2100,
+  terminal_adjoint = 0,  # Fixed terminal condition
+  verbose = TRUE
+)
+
+# Check results
+cat("\n=== TEST RESULTS ===\n")
+cat("Converged:", test_result$converged, "\n")
+cat("Iterations:", test_result$iterations, "\n")
+cat("Final emissions:", round(test_result$final_emissions, 1), "GtCO2\n")
+cat("Target emissions:", round(test_params$co2_target_2100, 1), "GtCO2\n")
+cat("Emission gap:", round(test_result$emission_gap, 1), "GtCO2\n")
+cat("Final temperature:", round(test_result$final_temperature, 2), "°C\n")
+cat("Total cost:", sprintf("%.1f", test_result$total_cost), "trillion $\n")
+
+# Test passed if it converged
+if (test_result$converged) {
+  cat("\n✓ TEST PASSED - Function executed successfully!\n")
+} else {
+  cat("\n✗ TEST FAILED - Function did not converge\n")
+}
+
+```
+
+```{r simple_shooting_test}
+
+# Simple test of optimal_control_shooting function
+# This tests the shooting method that finds the correct terminal adjoint
+
+# Source the core function
+source(here::here("src", "optimal_control_core.R"))
+
+# Create a simple parameter set for testing
+test_params <- data.frame(
+  cost_mitig_unit = 0.3,
+  cost_remov_unit = 1.2,
+  exp_mitig = 2,
+  exp_remov = 2,
+  exp_temp_anom = 2,
+  clim_temp_init = 1.2,
+  tcre = 0.45,
+  econ_dam_pct = 0.05,
+  disc_rate = 0.03,
+  co2_target_2100 = 650
+)
+
+# Set the scenario to test
+test_scenario <- "SSP3-Baseline"
+
+# Test the shooting method
+cat("Testing optimal_control_shooting function...\n")
+cat("Scenario:", test_scenario, "\n")
+cat("Target emissions:", test_params$co2_target_2100, "GtCO2\n\n")
+
+shooting_result <- optimal_control_shooting(
+  parameter_df = test_params,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = test_scenario,
+  target_emissions = test_params$co2_target_2100,
+  verbose = TRUE
+)
+
+# Check results
+cat("\n=== SHOOTING METHOD TEST RESULTS ===\n")
+cat("Converged:", shooting_result$converged, "\n")
+cat("Iterations:", shooting_result$iterations, "\n")
+cat("Final emissions:", round(shooting_result$final_emissions, 1), "GtCO2\n")
+cat("Target emissions:", round(test_params$co2_target_2100, 1), "GtCO2\n")
+cat("Emission gap:", round(shooting_result$emission_gap, 1), "GtCO2\n")
+cat("Final temperature:", round(shooting_result$final_temperature, 2), "°C\n")
+cat("Total cost:", sprintf("%.1f", shooting_result$total_cost), "trillion $\n")
+
+# Additional shooting method specific info
+if (!is.null(shooting_result$adjoint_var)) {
+  terminal_adjoint_found <- shooting_result$adjoint_var[length(shooting_result$adjoint_var)]
+  cat("Terminal adjoint found:", round(terminal_adjoint_found, 2), "\n")
+}
+
+# Test passed if it converged and met the emissions target
+gap_tolerance <- 5.0  # Allow 5 GtCO2 tolerance
+if (shooting_result$converged && abs(shooting_result$emission_gap) <= gap_tolerance) {
+  cat("\n✓ SHOOTING TEST PASSED - Found solution meeting emissions target!\n")
+} else if (shooting_result$converged) {
+  cat("\n⚠ SHOOTING TEST PARTIAL - Converged but missed emissions target by", 
+      round(abs(shooting_result$emission_gap), 1), "GtCO2\n")
+} else {
+  cat("\n✗ SHOOTING TEST FAILED - Did not converge\n")
+}
+
+# Optional: Test with delayed deployment
+cat("\n--- Testing with delayed deployment ---\n")
+delayed_result <- optimal_control_shooting(
+  parameter_df = test_params,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = test_scenario,
+  target_emissions = test_params$co2_target_2100,
+  mitigation_delay_years = 10,
+  cdr_delay_years = 5,
+  verbose = FALSE  # Less verbose for the second test
+)
+
+cat("Delayed deployment result:\n")
+cat("- Converged:", delayed_result$converged, "\n")
+cat("- Emission gap:", round(delayed_result$emission_gap, 1), "GtCO2\n")
+cat("- Total cost:", sprintf("%.1f", delayed_result$total_cost), "trillion $\n")
+
+if (delayed_result$converged) {
+  cat("- Mitigation starts:", delayed_result$mitigation_start_year, "\n")
+  cat("- CDR starts:", delayed_result$cdr_start_year, "\n")
+}
+
+```
+
+```{r comprehensive_shooting_test}
+
+# Comprehensive test of optimal_control_shooting function
+# This replicates the output format from step6_strict_inequality_V2.R
+
+# Source the core function
+source(here::here("src", "optimal_control_core.R"))
+
+# Use existing parameter_df (should be loaded from your workflow)
+# If parameter_df has multiple rows, use the first one
+if (nrow(parameter_df) > 1) {
+  test_params <- parameter_df[1, ]
+  cat("Using first row from parameter_df (", nrow(parameter_df), "rows available)\n")
+} else {
+  test_params <- parameter_df
+}
+
+# Use target from parameter_df
+target_emissions <- test_params$co2_target_2100
+
+cat("=== Step 6.1: Real IPCC Data with Shooting Method ===\n")
+cat("Using STRICT INEQUALITY formulation: u_m < E(t)\n")
+cat("Scenario:", test_scenario, "\n")
+cat("Target emissions:", target_emissions, "GtCO2\n\n")
+
+# Run the shooting method
+shooting_result <- optimal_control_shooting(
+  parameter_df = test_params,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = test_scenario,
+  target_emissions = target_emissions,
+  verbose = TRUE
+)
+
+# Display comprehensive results in the same format as step6_strict_inequality_V2.R
+if (!is.null(shooting_result) && shooting_result$converged) {
+  
+  cat("\n=== FINAL RESULTS ===\n")
+  cat("Scenario:", test_scenario, "\n")
+  cat("Target:", target_emissions, "GtCO2\n")
+  cat("Epsilon used:", shooting_result$epsilon_used, "\n")
+  cat("Final emissions:", round(shooting_result$final_emissions, 1), "GtCO2\n")
+  cat("Emission gap:", round(shooting_result$emission_gap, 1), "GtCO2\n")
+  cat("Final temperature:", round(shooting_result$final_temperature, 2), "°C\n")
+  cat("Max mitigation fraction:", sprintf("%.4f", shooting_result$max_mitig_fraction), "\n")
+  cat("Constraint violations:", shooting_result$constraint_violations, "\n\n")
+  
+  # Calculate verification totals
+  total_baseline <- sum(shooting_result$baseline_annual_emissions)
+  total_mitigation <- sum(shooting_result$qty_mitig)
+  total_cdr <- sum(shooting_result$qty_remov)
+  total_control <- total_mitigation + total_cdr
+  
+  cat("Verification:\n")
+  cat("Total baseline emissions:", round(total_baseline, 1), "GtCO2\n")
+  cat("Total mitigation:", round(total_mitigation, 1), "GtCO2\n")
+  cat("Total CDR:", round(total_cdr, 1), "GtCO2\n")
+  cat("Total control needed:", round(total_baseline - target_emissions, 1), "GtCO2\n")
+  cat("Total control applied:", round(total_control, 1), "GtCO2\n")
+  cat("Control efficiency:", sprintf("%.1f%%", 100 * (total_baseline - target_emissions) / total_control), "\n\n")
+  
+  # Diagnostic check for maximum mitigation
+  years_at_max <- sum(shooting_result$qty_mitig >= (shooting_result$baseline_annual_emissions - shooting_result$epsilon_used - 0.001))
+  if (years_at_max > 0) {
+    cat("Diagnostic: ", years_at_max, " years at or near maximum mitigation\n")
+    # Find which years
+    years_near_max <- which(shooting_result$qty_mitig >= (shooting_result$baseline_annual_emissions - shooting_result$epsilon_used - 0.001))
+    if (length(years_near_max) <= 10) {
+      cat("Years near max:", shooting_result$years[years_near_max], "\n")
+    } else {
+      cat("First 10 years near max:", shooting_result$years[years_near_max[1:10]], "...\n")
+    }
+  }
+  
+  # Cost breakdown
+  cat("Total cost:", sprintf("%.1f", shooting_result$total_cost), "trillion $\n")
+  cat("Mitigation cost:", sprintf("%.1f", shooting_result$mitig_cost), "trillion $ (", 
+      sprintf("%.1f%%", 100*shooting_result$mitig_cost/shooting_result$total_cost), ")\n")
+  cat("CDR cost:", sprintf("%.1f", shooting_result$remov_cost), "trillion $ (", 
+      sprintf("%.1f%%", 100*shooting_result$remov_cost/shooting_result$total_cost), ")\n")
+  cat("Temperature damage cost:", sprintf("%.1f", shooting_result$temp_cost), "trillion $ (", 
+      sprintf("%.1f%%", 100*shooting_result$temp_cost/shooting_result$total_cost), ")\n")
+  
+  # Yearly cost vectors (sample)
+  cat("\n=== YEARLY COST VECTORS (Sample) ===\n")
+  cat("First 5 years mitigation costs:", sprintf("%.2f", shooting_result$mitig_costs_annual[1:5]), "\n")
+  cat("First 5 years CDR costs:", sprintf("%.2f", shooting_result$remov_costs_annual[1:5]), "\n")
+  cat("First 5 years temperature costs:", sprintf("%.2f", shooting_result$temp_costs_annual[1:5]), "\n")
+  cat("First 5 years total costs:", sprintf("%.2f", shooting_result$total_costs_annual[1:5]), "\n")
+  cat("Length of cost vectors:", length(shooting_result$total_costs_annual), "years\n")
+  
+} else {
+  cat("\n✗ SHOOTING TEST FAILED - Algorithm did not converge or returned NULL\n")
+  if (!is.null(shooting_result)) {
+    cat("Converged:", shooting_result$converged, "\n")
+    cat("Final emissions:", round(shooting_result$final_emissions, 1), "GtCO2\n")
+    cat("Emission gap:", round(shooting_result$emission_gap, 1), "GtCO2\n")
+  }
+}
+
+
+```
+
+```{r test_single_optimization}
+
+# Test run_single_optimization function
+# This is the simplest runner function - wraps the core algorithm
+
+# Source the runner functions
+source(here::here("src", "optimal_control_runners.R"))
+
+# Use existing parameter_df (first row if multiple)
+if (nrow(parameter_df) > 1) {
+  test_params <- parameter_df[1, ]
+  cat("Using first row from parameter_df (", nrow(parameter_df), "rows available)\n")
+} else {
+  test_params <- parameter_df
+}
+
+# Set scenario
+test_scenario <- "SSP3-Baseline"
+
+cat("=== TESTING run_single_optimization ===\n")
+cat("Scenario:", test_scenario, "\n")
+cat("Target emissions:", test_params$co2_target_2100, "GtCO2\n\n")
+
+# Test the single optimization runner
+single_result <- run_single_optimization(
+  parameter_df = test_params,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = test_scenario,
+  verbose = TRUE
+)
+
+# Check the results
+cat("\n=== RUNNER TEST RESULTS ===\n")
+cat("Success:", single_result$success, "\n")
+cat("Scenario used:", single_result$scenario, "\n")
+cat("Runtime:", sprintf("%.2f", single_result$run_info$run_time_minutes), "minutes\n")
+
+if (single_result$success) {
+  solution <- single_result$solution
+  cat("Final emissions:", round(solution$final_emissions, 1), "GtCO2\n")
+  cat("Final temperature:", round(solution$final_temperature, 2), "°C\n")
+  cat("Total cost:", sprintf("%.1f", solution$total_cost), "trillion $\n")
+  cat("Converged:", solution$converged, "\n")
+  cat("Iterations:", solution$iterations, "\n")
+  
+  cat("\n✓ run_single_optimization TEST PASSED\n")
+} else {
+  cat("Error:", single_result$error, "\n")
+  cat("\n✗ run_single_optimization TEST FAILED\n")
+}
+
+```
+
+```{r test_sensitivity_analysis}
+
+# Test run_sensitivity_analysis function
+# This tests running multiple parameter sets (like from LHS)
+
+cat("=== TESTING run_sensitivity_analysis ===\n")
+
+# Use the full parameter_df (you've set it up with 10 rows)
+test_params_multi <- parameter_df
+cat("Using all", nrow(parameter_df), "rows from parameter_df\n")
+
+test_scenario <- "SSP3-Baseline"
+
+cat("Number of parameter sets:", nrow(test_params_multi), "\n")
+cat("Scenario:", test_scenario, "\n")
+cat("Using serial processing for testing (faster for small numbers)\n\n")
+
+# Test the sensitivity analysis runner (with serial processing for speed)
+sensitivity_result <- run_sensitivity_analysis(
+  parameter_df = test_params_multi,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = test_scenario,
+  use_parallel = FALSE,  # Serial for testing
+  save_intermediate = FALSE,  # Don't save temp files during test
+  verbose = TRUE
+)
+
+# Check the results
+cat("\n=== SENSITIVITY ANALYSIS TEST RESULTS ===\n")
+cat("Total parameter sets:", sensitivity_result$run_info$n_samples, "\n")
+cat("Successful runs:", sensitivity_result$run_info$n_successful, "\n")
+cat("Failed runs:", sensitivity_result$run_info$n_failed, "\n")
+cat("Success rate:", sprintf("%.1f%%", 100 * sensitivity_result$run_info$n_successful / sensitivity_result$run_info$n_samples), "\n")
+cat("Total runtime:", sprintf("%.2f", sensitivity_result$run_info$total_time_minutes), "minutes\n")
+
+if (sensitivity_result$run_info$n_successful > 0) {
+  cat("\nSummary of successful runs:\n")
+  summary_df <- sensitivity_result$summary
+  cat("Final emissions range:", sprintf("%.1f - %.1f GtCO2", 
+                                        min(summary_df$final_emissions), 
+                                        max(summary_df$final_emissions)), "\n")
+  cat("Total cost range:", sprintf("%.1f - %.1f trillion $", 
+                                   min(summary_df$total_cost), 
+                                   max(summary_df$total_cost)), "\n")
+  cat("Peak temperature range:", sprintf("%.2f - %.2f°C", 
+                                         min(summary_df$peak_temperature), 
+                                         max(summary_df$peak_temperature)), "\n")
+  
+  cat("\n✓ run_sensitivity_analysis TEST PASSED\n")
+  cat("Multiple parameter sets processed successfully!\n")
+} else {
+  cat("No successful runs - check parameters or data\n")
+  cat("\n⚠ run_sensitivity_analysis TEST PARTIAL - No successful runs\n")
+}
+
+# Show structure of results for verification
+cat("\nResult structure:\n")
+cat("- successful_runs: list with", length(sensitivity_result$successful_runs), "elements\n")
+cat("- failed_runs: list with", length(sensitivity_result$failed_runs), "elements\n")
+cat("- summary: data frame with", nrow(sensitivity_result$summary), "rows and", ncol(sensitivity_result$summary), "columns\n")
+
+```
+
+```{r test_delayed_deployment}
+
+# Test run_delayed_deployment_analysis function
+# This tests different combinations of mitigation and CDR deployment delays
+
+cat("=== TESTING run_delayed_deployment_analysis ===\n")
+
+# Use first row of parameter_df (delayed deployment analysis uses single parameter set)
+test_params_single <- parameter_df[1, ]
+test_scenario <- "SSP3-Baseline"
+
+# Use small delay ranges for testing (faster)
+max_delay_test <- 10  # Test delays from 0 to 10 years
+step_size_test <- 5   # Steps of 5 years (so 0, 5, 10)
+
+cat("Using single parameter set (first row)\n")
+cat("Scenario:", test_scenario, "\n")
+cat("Testing delays from 0 to", max_delay_test, "years\n")
+cat("Step size:", step_size_test, "years\n")
+cat("Total combinations:", ((max_delay_test/step_size_test) + 1)^2, "\n")
+cat("Using serial processing for testing\n\n")
+
+# Test the delayed deployment analysis
+delayed_result <- run_delayed_deployment_analysis(
+  parameter_df = test_params_single,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = test_scenario,
+  max_delay_years = max_delay_test,
+  delay_step_size = step_size_test,
+  use_parallel = FALSE,  # Serial for testing
+  verbose = TRUE
+)
+
+# Check the results
+cat("\n=== DELAYED DEPLOYMENT TEST RESULTS ===\n")
+cat("Total combinations:", delayed_result$run_info$n_combinations, "\n")
+cat("Converged solutions:", delayed_result$summary_stats$n_converged, "\n")
+cat("Feasible solutions:", delayed_result$summary_stats$n_feasible, "\n")
+cat("Convergence rate:", sprintf("%.1f%%", 100 * delayed_result$summary_stats$convergence_rate), "\n")
+cat("Feasibility rate:", sprintf("%.1f%%", 100 * delayed_result$summary_stats$feasibility_rate), "\n")
+cat("Total runtime:", sprintf("%.2f", delayed_result$run_info$total_time_minutes), "minutes\n")
+
+if (delayed_result$summary_stats$n_feasible > 0) {
+  cat("\nFeasible combinations analysis:\n")
+  feasible_df <- delayed_result$feasible_combinations
+  cat("Peak temperature range:", sprintf("%.2f - %.2f°C", 
+                                         min(feasible_df$peak_temperature, na.rm = TRUE),
+                                         max(feasible_df$peak_temperature, na.rm = TRUE)), "\n")
+  cat("Total cost range:", sprintf("%.1f - %.1f trillion $", 
+                                   min(feasible_df$total_cost, na.rm = TRUE),
+                                   max(feasible_df$total_cost, na.rm = TRUE)), "\n")
+  
+  # Show sample of delay combinations
+  cat("\nSample feasible combinations:\n")
+  sample_feasible <- head(feasible_df[, c("mitigation_delay", "cdr_delay", "peak_temperature", "total_cost")], 3)
+  print(sample_feasible)
+  
+  cat("\n✓ run_delayed_deployment_analysis TEST PASSED\n")
+} else {
+  cat("No feasible combinations found - this might indicate parameter issues\n")
+  cat("Showing first few results:\n")
+  print(head(delayed_result$results_grid[, c("mitigation_delay", "cdr_delay", "converged", "feasible")], 5))
+  cat("\n⚠ run_delayed_deployment_analysis TEST PARTIAL - No feasible solutions\n")
+}
+
+# Show structure of results
+cat("\nResult structure:\n")
+cat("- results_grid: data frame with", nrow(delayed_result$results_grid), "rows\n")
+cat("- feasible_combinations: data frame with", nrow(delayed_result$feasible_combinations), "rows\n")
+cat("- summary_stats: list with", length(delayed_result$summary_stats), "elements\n")
+
+```
+
+```{r test_scenario_comparison}
+
+# Test run_scenario_comparison function
+# This tests running the same parameter set across multiple SSP scenarios
+
+cat("=== TESTING run_scenario_comparison ===\n")
+
+# Use first row of parameter_df (scenario comparison uses single parameter set)
+test_params_single <- parameter_df[1, ]
+
+# Check what scenarios are available in your data
+available_scenarios <- unique(emissions_df$Scenario)
+cat("Available scenarios in data:", paste(available_scenarios, collapse = ", "), "\n")
+
+# Test with a few scenarios (choose ones that exist in your data)
+# Typically SSP scenarios include: SSP1-Baseline, SSP2-Baseline, SSP3-Baseline, etc.
+test_scenarios <- c("SSP1-Baseline", "SSP2-Baseline", "SSP3-Baseline")
+
+# Filter to only scenarios that actually exist in your data
+test_scenarios <- test_scenarios[test_scenarios %in% available_scenarios]
+
+if (length(test_scenarios) == 0) {
+  # Fallback: use the first 3 available scenarios, or all if fewer than 3
+  test_scenarios <- head(available_scenarios, 3)
+}
+
+cat("Testing scenarios:", paste(test_scenarios, collapse = ", "), "\n")
+cat("Number of scenarios:", length(test_scenarios), "\n")
+cat("Using single parameter set (first row)\n")
+cat("Using serial processing for testing\n\n")
+
+# Test the scenario comparison
+scenario_result <- run_scenario_comparison(
+  parameter_df = test_params_single,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenarios = test_scenarios,
+  use_parallel = FALSE,  # Serial for testing
+  verbose = TRUE
+)
+
+# Check the results
+cat("\n=== SCENARIO COMPARISON TEST RESULTS ===\n")
+cat("Total scenarios tested:", scenario_result$run_info$n_scenarios, "\n")
+cat("Successful scenarios:", scenario_result$run_info$n_successful, "\n")
+cat("Failed scenarios:", scenario_result$run_info$n_failed, "\n")
+cat("Success rate:", sprintf("%.1f%%", 100 * scenario_result$run_info$n_successful / scenario_result$run_info$n_scenarios), "\n")
+cat("Total runtime:", sprintf("%.2f", scenario_result$run_info$total_time_minutes), "minutes\n")
+
+if (scenario_result$run_info$n_successful > 0) {
+  cat("\nComparison across scenarios:\n")
+  comparison_df <- scenario_result$comparison_summary
+  
+  # Show key metrics for each scenario
+  cat("Results by scenario:\n")
+  print(comparison_df[, c("scenario", "final_emissions", "peak_temperature", "total_cost")])
+  
+  cat("\nCross-scenario ranges:\n")
+  cat("Final emissions range:", sprintf("%.1f - %.1f GtCO2", 
+                                        min(comparison_df$final_emissions), 
+                                        max(comparison_df$final_emissions)), "\n")
+  cat("Peak temperature range:", sprintf("%.2f - %.2f°C", 
+                                         min(comparison_df$peak_temperature), 
+                                         max(comparison_df$peak_temperature)), "\n")
+  cat("Total cost range:", sprintf("%.1f - %.1f trillion $", 
+                                   min(comparison_df$total_cost), 
+                                   max(comparison_df$total_cost)), "\n")
+  
+  cat("\n✓ run_scenario_comparison TEST PASSED\n")
+  cat("Multiple scenarios processed successfully!\n")
+} else {
+  cat("No successful scenario runs\n")
+  if (length(scenario_result$failed_scenarios) > 0) {
+    cat("Failed scenarios:\n")
+    for (scenario_name in names(scenario_result$failed_scenarios)) {
+      cat("-", scenario_name, ":", scenario_result$failed_scenarios[[scenario_name]], "\n")
+    }
+  }
+  cat("\n⚠ run_scenario_comparison TEST FAILED - No successful scenarios\n")
+}
+
+# Show structure of results
+cat("\nResult structure:\n")
+cat("- scenario_results: list with", length(scenario_result$scenario_results), "elements\n")
+cat("- comparison_summary: data frame with", 
+    ifelse(is.null(scenario_result$comparison_summary), 0, nrow(scenario_result$comparison_summary)), "rows\n")
+cat("- failed_scenarios: list with", length(scenario_result$failed_scenarios), "elements\n")
+
+```
+
+```{r perturbation_analysis_call, eval=FALSE, include=FALSE}
+
+# Source the perturbation analysis code
+source(here::here("src", "perturbation_analysis.R"))
+
+# Assuming 'oc_solution' contains your optimal control solution
+# and 'parameter_df' contains your parameter values
+
+# Create vector_list from the existing optimal solution
+solution <- oc_solution[[1]]
+temp_vector_list <- list(
+  # Time variables
+  years = solution$years,
+  years_rel = solution$years_rel,
+  n_years = solution$n_years,
+  
+  # State variables
+  baseline_annual_emissions = solution$baseline_annual_emissions,
+  temperature_anomaly = solution$temperature_anomaly,
+  cumulative_emissions = solution$cumulative_emissions,
+  
+  # Control variables and bounds
+  qty_mitig = solution$qty_mitig,
+  qty_remov = solution$qty_remov,
+  
+  # Adjoint variable
+  adjoint_var = solution$adjoint_var,
+  
+  # Cost components
+  baseline_annual_gwp = solution$baseline_annual_gwp,
+  cost_mitig_cumul = solution$cost_mitig_cumul,
+  cost_remov_cumul = solution$cost_remov_cumul,
+  cost_resid_cumul = solution$cost_resid_cumul,
+  cost_total_cumul = solution$cost_total_cumul
+)
+
+# Now use this vector_list in your perturbation analysis
+perturbation_results <- run_perturbation_analysis(
+  optimal_solution = oc_solution[[1]],
+  parameter_df = parameter_df,
+  vector_list = temp_vector_list,
+  save_path = "output/perturbation_analysis"
+)
+
+# View the summary of results
+perturbation_results$summary
+
+```
+
+```{r optimal_control_call, eval=FALSE, include=FALSE}
+
+# Run the optimal control solution for specified scenario
+# This is the main computational step that solves the optimal control problem
+
+source(here::here("src", "optimal_control.R"))
+source(here::here("src", "forward_backward_sweep.R"))
+source(here::here("src", "shooting_method.R"))
+
+# USER CHOICE: Set the SSP scenario to analyze
+scenario <- "SSP3-Baseline"
+
+# USER CHOICE: Run with or without parallel processing
+# Option 1: Serial processing (slower but simpler)
+# oc_solution <- run_multiple_sweeps(parameter_df, emissions_df, economic_df, scenario)
+
+# Option 2: Parallel processing (faster, recommended for many parameter sets)
+oc_solution <- run_multiple_sweeps_parallel(parameter_df, emissions_df, economic_df, scenario)
+
+# Save results with timestamp for reproducibility
+save_timestamped_solution(oc_solution, "oc_solution", scenario)
+
+
+```
+
+```{r visualisation_call, eval=FALSE, include=FALSE}
+
+# Create visualization of results
+# Generates plots and dashboards to show optimal control solutions
+
+source(here::here("src", "visualisation.R"))
+
+# USER CHOICE: Generate individual plots by uncommenting these lines
+# create_temperature_plot(oc_solution)
+# create_emissions_plot(oc_solution)
+# create_mitigation_plot(oc_solution)
+# create_cdr_plot(oc_solution)
+# create_adjoint_plot(oc_solution)
+# create_cost_plot(oc_solution)
+
+# Create combined dashboard with all key visualizations
+combined_dashboard <- create_combined_dashboard(oc_solution)
+
+
+```
+
+
+
+```{r save_parameters, eval=FALSE, include=FALSE}
+
+# Save parameter sets for reproducibility and further analysis
+# This separates successful and problematic parameter combinations
+
+# Save parameter sets that worked well vs. those that failed
+saveRDS(safe_parameter_df, "safe_parameter_df.rds")
+saveRDS(faulty_parameter_df, "faulty_parameter_df.rds")
+
+# Load saved parameter set (e.g., for rerunning successful parameters)
+parameter_df <- readRDS("safe_parameter_df.rds")
+
+```
+
+
+```{r optimal_control_core_call, eval=FALSE, include=FALSE}
+
+# Test the core optimal control functions
+# This tests both the basic solve function and the shooting method
+
+source(here::here("src", "optimal_control_core.R"))
+
+# USER CHOICE: Set the SSP scenario to test
+test_scenario <- "SSP3-Baseline"
+
+# Test 1: Basic optimal_control_solve with fixed terminal adjoint
+cat("=== Testing optimal_control_solve (fixed terminal condition) ===\n")
+
+# Use first parameter set for testing
+test_params <- parameter_df[1, ]
+
+# Test with a reasonable terminal adjoint value
+test_result_fixed <- optimal_control_solve(
+  parameter_df = test_params,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  target_emissions = test_params$co2_target_2100,
+  terminal_adjoint = 1000,
+  verbose = TRUE
+)
+
+# Check if the basic solve worked
+if (test_result_fixed$converged) {
+  cat("\n✓ Basic solve PASSED\n")
+  cat("Final emissions:", round(test_result_fixed$final_emissions, 1), "GtCO2\n")
+  cat("Final temperature:", round(test_result_fixed$final_temperature, 2), "°C\n")
+  cat("Total cost:", sprintf("%.1f", test_result_fixed$total_cost), "trillion $\n")
+} else {
+  cat("\n✗ Basic solve FAILED - algorithm did not converge\n")
+}
+
+cat("\n" + rep("=", 60) + "\n")
+
+# Test 2: Full shooting method (finds optimal terminal condition)
+cat("=== Testing optimal_control_shooting (full method) ===\n")
+
+test_result_shooting <- optimal_control_shooting(
+  parameter_df = test_params,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = test_scenario,
+  verbose = TRUE
+)
+
+# Check if the shooting method worked
+if (test_result_shooting$converged) {
+  cat("\n✓ Shooting method PASSED\n")
+  cat("Final emissions:", round(test_result_shooting$final_emissions, 1), "GtCO2\n")
+  cat("Emission gap:", round(test_result_shooting$emission_gap, 1), "GtCO2\n")
+  cat("Final temperature:", round(test_result_shooting$final_temperature, 2), "°C\n")
+  cat("Total cost:", sprintf("%.1f", test_result_shooting$total_cost), "trillion $\n")
+} else {
+  cat("\n✗ Shooting method FAILED - could not find solution meeting emissions target\n")
+}
+
+cat("\n" + rep("=", 60) + "\n")
+
+# Test 3: Test with delayed deployment
+cat("=== Testing delayed deployment functionality ===\n")
+
+test_result_delayed <- optimal_control_shooting(
+  parameter_df = test_params,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = test_scenario,
+  mitigation_delay_years = 10,
+  cdr_delay_years = 5,
+  verbose = TRUE
+)
+
+if (test_result_delayed$converged) {
+  cat("\n✓ Delayed deployment PASSED\n")
+  cat("Mitigation starts in year:", test_result_delayed$mitigation_start_year, "\n")
+  cat("CDR starts in year:", test_result_delayed$cdr_start_year, "\n")
+  cat("Final emissions:", round(test_result_delayed$final_emissions, 1), "GtCO2\n")
+} else {
+  cat("\n✗ Delayed deployment FAILED\n")
+}
+
+cat("\n" + rep("=", 60) + "\n")
+
+# Summary
+cat("=== CORE TESTING SUMMARY ===\n")
+cat("Basic solve converged:", test_result_fixed$converged, "\n")
+cat("Shooting method converged:", test_result_shooting$converged, "\n")
+cat("Delayed deployment converged:", test_result_delayed$converged, "\n")
+
+# Store successful result for further testing
+if (test_result_shooting$converged) {
+  core_test_solution <- test_result_shooting
+  cat("\nCore functions are working! Stored solution in 'core_test_solution'\n")
+} else {
+  cat("\nCore functions need debugging before proceeding\n")
+}
+
+```
+
 
 ```{r not_complete_code, eval=FALSE, include=FALSE}
 

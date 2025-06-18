@@ -46,7 +46,7 @@ library(ggplot2)   # Data visualization
 library(cowplot)   # Plot arrangement
 library(patchwork) # Plot composition
 library(Cairo)     # PDF export
-
+library(viridisLite) # Colourblind friendly palettes
 
 ```
 
@@ -86,137 +86,796 @@ economic_df <- interpolate_ssp_economic(
 # This creates multiple parameter combinations for sensitivity analysis
 
 source(here::here("src", "latin_hypercube_sampling.R"))
+source(here::here("src", "model_parameters.R"))
 
-# USER CHOICE: Change 100 to desired number of parameter sets to generate
-lhs_parameter_df <- generate_lhs_samples(500)
-
-```
-
-```{r model_parameters_call}
+# USER CHOICE: Change to desired number of parameter sets to generate
+lhs_parameter_df <- generate_lhs_samples(10)
 
 # Add fixed model parameters to the LHS samples
 # Combines variable parameters from LHS with fixed model parameters
+parameter_df <- add_fixed_parameters(lhs_parameter_df)
+
+```
+
+```{r fixed_model_parameters_call}
 
 source(here::here("src", "model_parameters.R"))
 
-parameter_df <- add_fixed_parameters(lhs_parameter_df)
-
 # Alternative: Use predefined parameter set instead of LHS samples, 
-# Uncomment the following line to use fixed parameters instead:
-#parameter_df <- create_params_dataframe()
+parameter_df <- create_params_dataframe()
 
 
 ```
 
-```{r optimal_control_call}
 
-# Run the optimal control solution for specified scenario
-# This is the main computational step that solves the optimal control problem
+```{r quick_demo}
 
-source(here::here("src", "optimal_control.R"))
-source(here::here("src", "forward_backward_sweep.R"))
-source(here::here("src", "shooting_method.R"))
+# Quick demonstration run to verify everything is working
+# This provides immediate feedback and tests the core algorithm before running expensive analyses
 
-# USER CHOICE: Set the SSP scenario to analyze
-scenario <- "SSP3-Baseline"
+# Source the new core and runner functions
+source(here::here("src", "optimal_control_core.R"))
+source(here::here("src", "optimal_control_runners.R"))
 
-# USER CHOICE: Run with or without parallel processing
-# Option 1: Serial processing (slower but simpler)
-# oc_solution <- run_multiple_sweeps(parameter_df, emissions_df, economic_df, scenario)
+# USER CHOICE: Set the SSP scenario for demonstration
+demo_scenario <- "SSP3-Baseline"
 
-# Option 2: Parallel processing (faster, recommended for many parameter sets)
-oc_solution <- run_multiple_sweeps_parallel(parameter_df, emissions_df, economic_df, scenario)
+# Generate timestamp for consistent file naming across all chunks
+workflow_timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
 
-# Save results with timestamp for reproducibility
-save_timestamped_solution(oc_solution, "oc_solution", scenario)
+cat("=== QUICK DEMONSTRATION RUN ===\n")
+cat("Scenario:", demo_scenario, "\n")
+cat("Using first parameter set from parameter_df\n")
+cat("Timestamp:", workflow_timestamp, "\n\n")
 
-
-```
-
-```{r visualisation_call}
-
-# Create visualization of results
-# Generates plots and dashboards to show optimal control solutions
-
-source(here::here("src", "visualisation.R"))
-
-# USER CHOICE: Generate individual plots by uncommenting these lines
-# create_temperature_plot(oc_solution)
-# create_emissions_plot(oc_solution)
-# create_mitigation_plot(oc_solution)
-# create_cdr_plot(oc_solution)
-# create_adjoint_plot(oc_solution)
-# create_cost_plot(oc_solution)
-
-# Create combined dashboard with all key visualizations
-combined_dashboard <- create_combined_dashboard(oc_solution)
-
-
-```
-```{r perturbation_analysis_call}
-
-# Source the perturbation analysis code
-source(here::here("src", "perturbation_analysis.R"))
-
-# Assuming 'oc_solution' contains your optimal control solution
-# and 'parameter_df' contains your parameter values
-
-# Create vector_list from the existing optimal solution
-solution <- oc_solution[[1]]
-temp_vector_list <- list(
-  # Time variables
-  years = solution$years,
-  years_rel = solution$years_rel,
-  n_years = solution$n_years,
-  
-  # State variables
-  baseline_annual_emissions = solution$baseline_annual_emissions,
-  temperature_anomaly = solution$temperature_anomaly,
-  cumulative_emissions = solution$cumulative_emissions,
-  
-  # Control variables and bounds
-  qty_mitig = solution$qty_mitig,
-  qty_remov = solution$qty_remov,
-  
-  # Adjoint variable
-  adjoint_var = solution$adjoint_var,
-  
-  # Cost components
-  baseline_annual_gwp = solution$baseline_annual_gwp,
-  cost_mitig_cumul = solution$cost_mitig_cumul,
-  cost_remov_cumul = solution$cost_remov_cumul,
-  cost_resid_cumul = solution$cost_resid_cumul,
-  cost_total_cumul = solution$cost_total_cumul
+# Run single optimization using the first parameter set
+# This tests both the shooting method and core algorithm
+demo_result <- run_single_optimization(
+  parameter_df = parameter_df[1, ],  # Use first parameter set
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = demo_scenario,
+  use_shooting = TRUE,  # Use full shooting method
+  verbose = TRUE
 )
 
-# Now use this vector_list in your perturbation analysis
-perturbation_results <- run_perturbation_analysis(
-  optimal_solution = oc_solution[[1]],
-  parameter_df = parameter_df,
-  vector_list = temp_vector_list,
-  save_path = "output/perturbation_analysis"
+# Check if demonstration was successful
+if (demo_result$success) {
+  cat("\n✓ DEMO SUCCESSFUL!\n")
+  cat("Final emissions:", round(demo_result$solution$final_emissions, 1), "GtCO2\n")
+  cat("Final temperature:", round(demo_result$solution$final_temperature, 2), "°C\n")
+  cat("Total cost:", sprintf("%.1f", demo_result$solution$total_cost), "trillion $\n")
+  cat("Runtime:", sprintf("%.2f", demo_result$run_info$run_time_minutes), "minutes\n")
+} else {
+  cat("\n✗ DEMO FAILED\n")
+  if (!is.null(demo_result$error)) {
+    cat("Error:", demo_result$error, "\n")
+  }
+  cat("Check parameter settings and data files\n")
+}
+
+# Save demonstration results with descriptive filename
+demo_filename <- paste0("demo_result_", demo_scenario, "_", workflow_timestamp, ".rds")
+demo_filepath <- here::here("output", demo_filename)
+saveRDS(demo_result, demo_filepath)
+
+cat("\nDemo results saved to:", demo_filepath, "\n")
+
+```
+
+```{r sensitivity_analysis, eval=FALSE}
+
+# Sensitivity analysis using Latin Hypercube Sampling (LHS) parameter sets
+# This explores the solution space across multiple parameter combinations
+
+# Generate timestamp for consistent file naming
+workflow_timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+# Source required functions
+source(here::here("src", "optimal_control_core.R"))
+source(here::here("src", "optimal_control_runners.R"))
+
+cat("=== SENSITIVITY ANALYSIS ===\n")
+cat("Using", nrow(parameter_df), "parameter sets from LHS sampling\n")
+cat("Scenario:", demo_scenario, "\n")
+
+# USER CHOICE: Modify these settings if needed
+use_parallel_processing <- TRUE
+save_intermediate_results <- TRUE
+
+# Check if we have multiple parameter sets for sensitivity analysis
+if (nrow(parameter_df) <= 1) {
+  cat("WARNING: Only", nrow(parameter_df), "parameter set(s) available.\n")
+  cat("Sensitivity analysis requires multiple parameter sets.\n")
+  cat("Consider increasing the number of LHS samples in the latin_hypercube_sampling_call chunk.\n")
+} else {
+  
+  # Record start time
+  sensitivity_start_time <- Sys.time()
+  
+  # Run sensitivity analysis across all parameter sets
+  sensitivity_results <- run_sensitivity_analysis(
+    parameter_df = parameter_df,
+    emissions_df = emissions_df,
+    economic_df = economic_df,
+    scenario = demo_scenario,
+    use_parallel = use_parallel_processing,
+    save_intermediate = save_intermediate_results,
+    output_prefix = paste0("sensitivity_", demo_scenario, "_", workflow_timestamp),
+    verbose = TRUE
+  )
+  
+  # Calculate total runtime
+  sensitivity_runtime <- difftime(Sys.time(), sensitivity_start_time, units = "mins")
+  
+  # Report results
+  if (length(sensitivity_results$successful_runs) > 0) {
+    cat("\n✓ SENSITIVITY ANALYSIS COMPLETED!\n")
+    cat("Successful runs:", length(sensitivity_results$successful_runs), 
+        "out of", nrow(parameter_df), 
+        sprintf("(%.1f%%)\n", 100 * length(sensitivity_results$successful_runs) / nrow(parameter_df)))
+    cat("Failed runs:", length(sensitivity_results$failed_runs), "\n")
+    cat("Total runtime:", sprintf("%.1f", sensitivity_runtime), "minutes\n")
+    
+    # Show summary statistics if available
+    if (!is.null(sensitivity_results$summary)) {
+      cat("\nSummary statistics:\n")
+      cat("Peak temperature range:", 
+          sprintf("%.2f - %.2f°C", 
+                  min(sensitivity_results$summary$peak_temperature, na.rm = TRUE),
+                  max(sensitivity_results$summary$peak_temperature, na.rm = TRUE)), "\n")
+      cat("Total cost range:", 
+          sprintf("%.1f - %.1f trillion $", 
+                  min(sensitivity_results$summary$total_cost, na.rm = TRUE),
+                  max(sensitivity_results$summary$total_cost, na.rm = TRUE)), "\n")
+    }
+    
+  } else {
+    cat("\n✗ SENSITIVITY ANALYSIS FAILED\n")
+    cat("No successful runs completed. Check parameter ranges and model settings.\n")
+  }
+  
+  # Save sensitivity analysis results
+  sensitivity_filename <- paste0("sensitivity_results_", demo_scenario, "_", workflow_timestamp, ".rds")
+  sensitivity_filepath <- here::here("output", sensitivity_filename)
+  saveRDS(sensitivity_results, sensitivity_filepath)
+  
+  cat("\nSensitivity results saved to:", sensitivity_filepath, "\n")
+  
+  # Clean up intermediate files if they were created
+  if (save_intermediate_results) {
+    temp_files <- list.files(pattern = paste0("sensitivity_", demo_scenario, "_", workflow_timestamp, "_temp"), 
+                             full.names = TRUE)
+    if (length(temp_files) > 0) {
+      file.remove(temp_files)
+      cat("Cleaned up", length(temp_files), "temporary files\n")
+    }
+  }
+}
+
+```
+
+```{r sensitivity_visualization, eval=FALSE}
+
+# Create visualizations for sensitivity analysis results
+# Generates spaghetti plots showing the range of solutions across parameter sets
+
+# Source visualization functions
+source(here::here("src", "visualisation_V2.R"))
+
+cat("=== SENSITIVITY ANALYSIS VISUALIZATION ===\n")
+
+# Check if sensitivity results exist
+if (exists("sensitivity_results") && length(sensitivity_results$successful_runs) > 0) {
+  
+  cat("Creating spaghetti dashboard for", length(sensitivity_results$successful_runs), "successful runs\n")
+  
+  # Create spaghetti dashboard showing all successful runs
+  sensitivity_dashboard <- create_spaghetti_dashboard(
+    solution_list = sensitivity_results$successful_runs,
+    scenario_name = demo_scenario,
+    save_plot = FALSE
+  )
+  
+  # Display the dashboard
+  print(sensitivity_dashboard)
+  
+  # Save the dashboard as PDF
+  sensitivity_plot_filename <- paste0("sensitivity_dashboard_", demo_scenario, "_", workflow_timestamp, ".pdf")
+  sensitivity_plot_filepath <- here::here("figs", sensitivity_plot_filename)
+  
+  ggsave(
+    filename = sensitivity_plot_filepath,
+    plot = sensitivity_dashboard,
+    width = 190, 
+    height = 260, 
+    units = "mm",
+    device = cairo_pdf
+  )
+  
+  cat("✓ Sensitivity dashboard saved to:", sensitivity_plot_filepath, "\n")
+  
+  # Optional: Display summary statistics
+  if (!is.null(sensitivity_results$summary)) {
+    cat("\nSensitivity Analysis Summary:\n")
+    cat("Parameter sets analyzed:", nrow(sensitivity_results$summary), "\n")
+    cat("Peak temperature: ", 
+        sprintf("%.2f°C (min) to %.2f°C (max)", 
+                min(sensitivity_results$summary$peak_temperature, na.rm = TRUE),
+                max(sensitivity_results$summary$peak_temperature, na.rm = TRUE)), "\n")
+    cat("Total cost: ", 
+        sprintf("%.1f (min) to %.1f (max) trillion $", 
+                min(sensitivity_results$summary$total_cost, na.rm = TRUE),
+                max(sensitivity_results$summary$total_cost, na.rm = TRUE)), "\n")
+    cat("All runs converged: ", all(sensitivity_results$summary$converged), "\n")
+  }
+  
+} else if (exists("sensitivity_results")) {
+  # Sensitivity analysis was run but no successful results
+  cat("⚠ No successful runs available for visualization\n")
+  cat("Sensitivity analysis completed with", length(sensitivity_results$failed_runs), "failed runs\n")
+  
+  if (length(sensitivity_results$failed_runs) > 0) {
+    cat("\nCommon failure reasons:\n")
+    # Could add code here to analyze failure patterns if helpful
+  }
+  
+} else {
+  # Sensitivity analysis chunk was not run
+  cat("⚠ Sensitivity analysis results not found\n")
+  cat("Please run the sensitivity_analysis chunk first, or load existing results:\n")
+  cat("# sensitivity_results <- readRDS('path/to/sensitivity_results.rds')\n")
+}
+
+```
+
+```{r delayed_deployment_analysis, eval=FALSE}
+
+# Delayed deployment analysis to examine policy implications
+# Tests combinations of mitigation and CDR deployment delays
+
+# Generate timestamp for consistent file naming
+workflow_timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+# Source required functions
+source(here::here("src", "optimal_control_core.R"))
+source(here::here("src", "optimal_control_runners.R"))
+
+cat("=== DELAYED DEPLOYMENT ANALYSIS ===\n")
+
+# USER CHOICE: Modify these settings for different analysis resolution
+max_delay_years <- 40      # Maximum delay to test (years)
+delay_step_size <- 5       # Step size for delay grid (years)
+use_parallel_processing <- TRUE
+
+cat("Maximum delay:", max_delay_years, "years\n")
+cat("Step size:", delay_step_size, "years\n")
+cat("Scenario:", demo_scenario, "\n")
+
+# Calculate number of combinations for user information
+delay_sequence <- seq(0, max_delay_years, by = delay_step_size)
+n_combinations <- length(delay_sequence)^2
+cat("Total combinations to test:", n_combinations, "\n")
+cat("Estimated runtime: ~", round(n_combinations * 0.5, 1), "minutes (parallel) or ~", 
+    round(n_combinations * 2, 1), "minutes (serial)\n\n")
+
+# Record start time
+delay_start_time <- Sys.time()
+
+# Run delayed deployment analysis using first parameter set
+# (Use single parameter set to focus on policy implications rather than parameter uncertainty)
+delay_results <- run_delayed_deployment_analysis(
+  parameter_df = parameter_df[1, ],  # Use first parameter set for policy analysis
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = demo_scenario,
+  max_delay_years = max_delay_years,
+  delay_step_size = delay_step_size,
+  use_parallel = use_parallel_processing,
+  verbose = TRUE
 )
 
-# View the summary of results
-perturbation_results$summary
+# Calculate total runtime
+delay_runtime <- difftime(Sys.time(), delay_start_time, units = "mins")
+
+# Report results
+if (!is.null(delay_results$results_grid)) {
+  cat("\n✓ DELAYED DEPLOYMENT ANALYSIS COMPLETED!\n")
+  cat("Total combinations tested:", nrow(delay_results$results_grid), "\n")
+  cat("Converged solutions:", delay_results$summary_stats$n_converged, 
+      sprintf(" (%.1f%%)\n", 100 * delay_results$summary_stats$convergence_rate))
+  cat("Feasible solutions:", delay_results$summary_stats$n_feasible,
+      sprintf(" (%.1f%%)\n", 100 * delay_results$summary_stats$feasibility_rate))
+  cat("Total runtime:", sprintf("%.1f", delay_runtime), "minutes\n")
+  
+  # Show summary statistics for feasible solutions
+  if (nrow(delay_results$feasible_combinations) > 0) {
+    cat("\nFeasible solutions summary:\n")
+    
+    if (!is.null(delay_results$summary_stats$peak_temp_range)) {
+      cat("Peak temperature range:", 
+          sprintf("%.2f - %.2f°C", 
+                  delay_results$summary_stats$peak_temp_range["min"],
+                  delay_results$summary_stats$peak_temp_range["max"]), "\n")
+    }
+    
+    if (!is.null(delay_results$summary_stats$cost_range)) {
+      cat("Total cost range:", 
+          sprintf("%.1f - %.1f trillion $", 
+                  delay_results$summary_stats$cost_range["min"],
+                  delay_results$summary_stats$cost_range["max"]), "\n")
+    }
+    
+    # Find the combination with minimum cost
+    min_cost_row <- delay_results$feasible_combinations[
+      which.min(delay_results$feasible_combinations$total_cost), ]
+    cat("Minimum cost combination: Mitigation delay =", min_cost_row$mitigation_delay, 
+        "years, CDR delay =", min_cost_row$cdr_delay, "years\n")
+    
+    # Find the combination with minimum peak temperature
+    min_temp_row <- delay_results$feasible_combinations[
+      which.min(delay_results$feasible_combinations$peak_temperature), ]
+    cat("Minimum peak temperature combination: Mitigation delay =", min_temp_row$mitigation_delay,
+        "years, CDR delay =", min_temp_row$cdr_delay, "years\n")
+    
+  } else {
+    cat("\n⚠ No feasible combinations found!\n")
+    cat("All delay combinations resulted in solutions that missed the emissions target.\n")
+    cat("Consider:\n")
+    cat("- Reducing maximum delay years\n")
+    cat("- Relaxing the emissions target\n")
+    cat("- Checking parameter settings\n")
+  }
+  
+} else {
+  cat("\n✗ DELAYED DEPLOYMENT ANALYSIS FAILED\n")
+  cat("No results generated. Check parameter settings and model configuration.\n")
+}
+
+# Save delayed deployment results
+delay_filename <- paste0("delay_results_", demo_scenario, "_", workflow_timestamp, ".rds")
+delay_filepath <- here::here("output", delay_filename)
+saveRDS(delay_results, delay_filepath)
+
+cat("\nDelayed deployment results saved to:", delay_filepath, "\n")
 
 ```
 
+```{r delayed_deployment_visualization, eval=FALSE}
 
-```{r save_parameters, eval=FALSE, include=FALSE}
+# Create heatmap visualizations for delayed deployment analysis results
+# Shows the effect of deployment delays on key outcome metrics
 
-# Save parameter sets for reproducibility and further analysis
-# This separates successful and problematic parameter combinations
+# Source visualization functions
+source(here::here("src", "visualisation_V2.R"))
 
-# Save parameter sets that worked well vs. those that failed
-saveRDS(safe_parameter_df, "safe_parameter_df.rds")
-saveRDS(faulty_parameter_df, "faulty_parameter_df.rds")
+cat("=== DELAYED DEPLOYMENT VISUALIZATION ===\n")
 
-# Load saved parameter set (e.g., for rerunning successful parameters)
-parameter_df <- readRDS("safe_parameter_df.rds")
+# Check if delay results exist
+if (exists("delay_results") && !is.null(delay_results$results_grid)) {
+  
+  n_combinations <- nrow(delay_results$results_grid)
+  n_feasible <- nrow(delay_results$feasible_combinations)
+  
+  cat("Creating heatmaps for", n_combinations, "delay combinations\n")
+  cat("Feasible combinations:", n_feasible, "\n\n")
+  
+  # Create individual heatmaps
+  cat("Generating heatmaps...\n")
+  
+  # 1. Peak Temperature Heatmap
+  peak_temp_heatmap <- create_peak_temperature_heatmap(
+    results_df = delay_results$results_grid,
+    title = paste("Peak Temperature vs Deployment Delays -", demo_scenario),
+    add_contours = TRUE
+  )
+  
+  # 2. Total Cost Heatmap
+  cost_heatmap <- create_total_cost_heatmap(
+    results_df = delay_results$results_grid,
+    title = paste("Total Cost vs Deployment Delays -", demo_scenario),
+    add_contours = TRUE
+  )
+  
+  # 3. Years Above 1.5°C Heatmap (if data exists)
+  if ("years_above_1p5" %in% names(delay_results$results_grid)) {
+    years_1p5_heatmap <- create_years_above_1p5_heatmap(
+      results_df = delay_results$results_grid,
+      title = paste("Years Above 1.5°C vs Deployment Delays -", demo_scenario),
+      add_contours = TRUE
+    )
+  }
+  
+  # 4. CDR Units Heatmap (if data exists)
+  if ("total_cdr_units" %in% names(delay_results$results_grid)) {
+    cdr_heatmap <- create_cdr_units_heatmap(
+      results_df = delay_results$results_grid,
+      title = paste("Total CDR Units vs Deployment Delays -", demo_scenario),
+      add_contours = TRUE
+    )
+  }
+  
+  # Display heatmaps
+  cat("Displaying heatmaps...\n")
+  print(peak_temp_heatmap)
+  print(cost_heatmap)
+  
+  if (exists("years_1p5_heatmap")) {
+    print(years_1p5_heatmap)
+  }
+  
+  if (exists("cdr_heatmap")) {
+    print(cdr_heatmap)
+  }
+  
+  # Save heatmaps as individual PDF files
+  cat("Saving heatmaps...\n")
+  
+  # Peak temperature heatmap
+  peak_temp_filename <- paste0("peak_temperature_heatmap_", demo_scenario, "_", workflow_timestamp, ".pdf")
+  peak_temp_filepath <- here::here("figs", peak_temp_filename)
+  ggsave(peak_temp_filepath, peak_temp_heatmap, width = 190, height = 140, units = "mm", device = cairo_pdf)
+  
+  # Total cost heatmap
+  cost_filename <- paste0("total_cost_heatmap_", demo_scenario, "_", workflow_timestamp, ".pdf")
+  cost_filepath <- here::here("figs", cost_filename)
+  ggsave(cost_filepath, cost_heatmap, width = 190, height = 140, units = "mm", device = cairo_pdf)
+  
+  # Years above 1.5°C heatmap (if created)
+  if (exists("years_1p5_heatmap")) {
+    years_1p5_filename <- paste0("years_above_1p5_heatmap_", demo_scenario, "_", workflow_timestamp, ".pdf")
+    years_1p5_filepath <- here::here("figs", years_1p5_filename)
+    ggsave(years_1p5_filepath, years_1p5_heatmap, width = 190, height = 140, units = "mm", device = cairo_pdf)
+  }
+  
+  # CDR units heatmap (if created)
+  if (exists("cdr_heatmap")) {
+    cdr_filename <- paste0("cdr_units_heatmap_", demo_scenario, "_", workflow_timestamp, ".pdf")
+    cdr_filepath <- here::here("figs", cdr_filename)
+    ggsave(cdr_filepath, cdr_heatmap, width = 190, height = 140, units = "mm", device = cairo_pdf)
+  }
+  
+  cat("✓ Heatmaps saved successfully:\n")
+  cat("-", peak_temp_filepath, "\n")
+  cat("-", cost_filepath, "\n")
+  if (exists("years_1p5_heatmap")) cat("-", years_1p5_filepath, "\n")
+  if (exists("cdr_heatmap")) cat("-", cdr_filepath, "\n")
+  
+  # Summary insights
+  cat("\nKey insights from delay analysis:\n")
+  if (n_feasible > 0) {
+    min_cost_combo <- delay_results$feasible_combinations[which.min(delay_results$feasible_combinations$total_cost), ]
+    min_temp_combo <- delay_results$feasible_combinations[which.min(delay_results$feasible_combinations$peak_temperature), ]
+    
+    cat("- Lowest cost solution: Mitigation delay =", min_cost_combo$mitigation_delay, 
+        "years, CDR delay =", min_cost_combo$cdr_delay, "years\n")
+    cat("- Lowest peak temperature: Mitigation delay =", min_temp_combo$mitigation_delay,
+        "years, CDR delay =", min_temp_combo$cdr_delay, "years\n")
+    cat("- Trade-off between cost and temperature evident in heatmaps\n")
+  } else {
+    cat("- No feasible combinations found within tested delay ranges\n")
+    cat("- Consider reducing maximum delays or relaxing constraints\n")
+  }
+  
+} else if (exists("delay_results")) {
+  # Delay analysis was run but no valid results
+  cat("⚠ No valid delay analysis results for visualization\n")
+  cat("Delay analysis completed but produced no results grid\n")
+  
+} else {
+  # Delay analysis chunk was not run
+  cat("⚠ Delay analysis results not found\n")
+  cat("Please run the delayed_deployment_analysis chunk first, or load existing results:\n")
+  cat("# delay_results <- readRDS('path/to/delay_results.rds')\n")
+}
 
 ```
 
+```{r scenario_comparison_analysis, eval=FALSE}
 
+# Multi-scenario comparison analysis
+# Compares optimal control solutions across different SSP baseline scenarios
 
+# Generate timestamp for consistent file naming
+workflow_timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
 
+# Source required functions
+source(here::here("src", "optimal_control_core.R"))
+source(here::here("src", "optimal_control_runners.R"))
+
+cat("=== SCENARIO COMPARISON ANALYSIS ===\n")
+
+# USER CHOICE: Modify these settings to compare different scenarios
+scenarios_to_compare <- c("SSP1-Baseline", "SSP2-Baseline", "SSP3-Baseline", 
+                          "SSP4-Baseline", "SSP5-Baseline")
+use_parallel_processing <- TRUE
+
+# Check which scenarios are available in the data
+available_scenarios <- unique(emissions_df$Scenario)
+missing_scenarios <- setdiff(scenarios_to_compare, available_scenarios)
+
+if (length(missing_scenarios) > 0) {
+  cat("⚠ WARNING: The following scenarios are not available in the data:\n")
+  cat(paste("-", missing_scenarios, collapse = "\n"), "\n")
+  
+  # Use only available scenarios
+  scenarios_to_compare <- intersect(scenarios_to_compare, available_scenarios)
+  cat("Proceeding with available scenarios:", paste(scenarios_to_compare, collapse = ", "), "\n")
+}
+
+if (length(scenarios_to_compare) == 0) {
+  cat("✗ ERROR: No valid scenarios available for comparison\n")
+  cat("Available scenarios in data:", paste(available_scenarios, collapse = ", "), "\n")
+  
+} else {
+  cat("Comparing", length(scenarios_to_compare), "scenarios:\n")
+  cat(paste("-", scenarios_to_compare, collapse = "\n"), "\n")
+  cat("Using parallel processing:", use_parallel_processing, "\n")
+  cat("Parameter set: First parameter set from parameter_df\n\n")
+  
+  # Record start time
+  scenario_start_time <- Sys.time()
+  
+  # Run scenario comparison using first parameter set
+  # (Focus on scenario differences rather than parameter uncertainty)
+  scenario_results <- run_scenario_comparison(
+    parameter_df = parameter_df[1, ],  # Use first parameter set
+    emissions_df = emissions_df,
+    economic_df = economic_df,
+    scenarios = scenarios_to_compare,
+    use_parallel = use_parallel_processing,
+    verbose = TRUE
+  )
+  
+  # Calculate total runtime
+  scenario_runtime <- difftime(Sys.time(), scenario_start_time, units = "mins")
+  
+  # Report results
+  if (!is.null(scenario_results$scenario_results)) {
+    cat("\n✓ SCENARIO COMPARISON COMPLETED!\n")
+    cat("Scenarios analyzed:", length(scenarios_to_compare), "\n")
+    cat("Successful scenarios:", scenario_results$run_info$n_successful, "\n")
+    cat("Failed scenarios:", scenario_results$run_info$n_failed, "\n")
+    cat("Total runtime:", sprintf("%.1f", scenario_runtime), "minutes\n")
+    
+    # Report failed scenarios if any
+    if (length(scenario_results$failed_scenarios) > 0) {
+      cat("\n⚠ Failed scenarios:\n")
+      for (scenario_name in names(scenario_results$failed_scenarios)) {
+        cat("-", scenario_name, ":", scenario_results$failed_scenarios[[scenario_name]], "\n")
+      }
+    }
+    
+    # Show comparison summary if available
+    if (!is.null(scenario_results$comparison_summary)) {
+      cat("\nScenario comparison summary:\n")
+      
+      # Peak temperature range across scenarios
+      cat("Peak temperature range across scenarios:", 
+          sprintf("%.2f - %.2f°C", 
+                  min(scenario_results$comparison_summary$peak_temperature, na.rm = TRUE),
+                  max(scenario_results$comparison_summary$peak_temperature, na.rm = TRUE)), "\n")
+      
+      # Total cost range across scenarios
+      cat("Total cost range across scenarios:", 
+          sprintf("%.1f - %.1f trillion $", 
+                  min(scenario_results$comparison_summary$total_cost, na.rm = TRUE),
+                  max(scenario_results$comparison_summary$total_cost, na.rm = TRUE)), "\n")
+      
+      # Find scenarios with extreme values
+      min_cost_scenario <- scenario_results$comparison_summary[
+        which.min(scenario_results$comparison_summary$total_cost), "scenario"]
+      max_cost_scenario <- scenario_results$comparison_summary[
+        which.max(scenario_results$comparison_summary$total_cost), "scenario"]
+      
+      min_temp_scenario <- scenario_results$comparison_summary[
+        which.min(scenario_results$comparison_summary$peak_temperature), "scenario"]
+      max_temp_scenario <- scenario_results$comparison_summary[
+        which.max(scenario_results$comparison_summary$peak_temperature), "scenario"]
+      
+      cat("Lowest cost scenario:", min_cost_scenario, "\n")
+      cat("Highest cost scenario:", max_cost_scenario, "\n")
+      cat("Lowest peak temperature scenario:", min_temp_scenario, "\n")
+      cat("Highest peak temperature scenario:", max_temp_scenario, "\n")
+      
+      # Mitigation vs CDR patterns
+      cat("Total mitigation range:", 
+          sprintf("%.1f - %.1f GtCO2", 
+                  min(scenario_results$comparison_summary$total_mitigation_units, na.rm = TRUE),
+                  max(scenario_results$comparison_summary$total_mitigation_units, na.rm = TRUE)), "\n")
+      
+      cat("Total CDR range:", 
+          sprintf("%.1f - %.1f GtCO2", 
+                  min(scenario_results$comparison_summary$total_cdr_units, na.rm = TRUE),
+                  max(scenario_results$comparison_summary$total_cdr_units, na.rm = TRUE)), "\n")
+    }
+    
+  } else {
+    cat("\n✗ SCENARIO COMPARISON FAILED\n")
+    cat("No successful scenario results generated.\n")
+    cat("Check that scenarios exist in data and model parameters are valid.\n")
+  }
+  
+  # Save scenario comparison results
+  scenario_filename <- paste0("scenario_results_all_SSPs_", workflow_timestamp, ".rds")
+  scenario_filepath <- here::here("output", scenario_filename)
+  saveRDS(scenario_results, scenario_filepath)
+  
+  cat("\nScenario comparison results saved to:", scenario_filepath, "\n")
+  
+  # Optional: Save comparison summary as CSV for external analysis
+  if (!is.null(scenario_results$comparison_summary)) {
+    csv_filename <- paste0("scenario_comparison_summary_", workflow_timestamp, ".csv")
+    csv_filepath <- here::here("output", csv_filename)
+    write.csv(scenario_results$comparison_summary, csv_filepath, row.names = FALSE)
+    cat("Comparison summary CSV saved to:", csv_filepath, "\n")
+  }
+}
+
+```
+
+```{r scenario_comparison_visualization, eval=FALSE}
+
+# Create visualizations comparing optimal control solutions across multiple SSP scenarios
+# Shows how different baseline emission pathways affect optimal strategies
+
+# Source visualization functions
+source(here::here("src", "visualisation_V2.R"))
+
+cat("=== SCENARIO COMPARISON VISUALIZATION ===\n")
+
+# Check if scenario results exist
+if (exists("scenario_results") && !is.null(scenario_results$scenario_results)) {
+  
+  # Get the actual scenario results (handle nested structure)
+  actual_scenario_results <- scenario_results$scenario_results
+  
+  n_scenarios <- length(actual_scenario_results)
+  successful_scenarios <- names(actual_scenario_results)
+  
+  cat("Creating multi-scenario dashboard for", n_scenarios, "scenarios\n")
+  cat("Scenarios:", paste(successful_scenarios, collapse = ", "), "\n\n")
+  
+  # The visualization functions expect a structure like:
+  # scenario_results[[scenario_name]]$solution (the actual solution)
+  # scenario_results[[scenario_name]]$success (boolean)
+  # But we have direct solution objects, so we need to wrap them
+  
+  wrapped_scenario_results <- list()
+  for (scenario_name in names(actual_scenario_results)) {
+    solution_obj <- actual_scenario_results[[scenario_name]]
+    
+    # Wrap each solution object in the expected structure
+    wrapped_scenario_results[[scenario_name]] <- list(
+      solution = solution_obj,
+      success = TRUE  # If it's in the results, it was successful
+    )
+  }
+  
+  cat("Generating multi-scenario dashboard...\n")
+  
+  scenario_dashboard <- create_multi_scenario_dashboard(
+    scenario_results = wrapped_scenario_results,
+    save_plot = FALSE
+  )
+  
+  # Display the dashboard
+  print(scenario_dashboard)
+  
+  # Save the dashboard as PDF
+  scenario_plot_filename <- paste0("scenario_dashboard_all_SSPs_", workflow_timestamp, ".pdf")
+  scenario_plot_filepath <- here::here("figs", scenario_plot_filename)
+  
+  ggsave(
+    filename = scenario_plot_filepath,
+    plot = scenario_dashboard,
+    width = 190, 
+    height = 260, 
+    units = "mm",
+    device = cairo_pdf
+  )
+  
+  cat("✓ Multi-scenario dashboard saved to:", scenario_plot_filepath, "\n")
+  
+  # Display scenario comparison insights
+  if (!is.null(scenario_results$comparison_summary)) {
+    cat("\nScenario Comparison Insights:\n")
+    
+    # Create a more readable summary
+    summary_df <- scenario_results$comparison_summary
+    
+    cat("Scenarios analyzed:", nrow(summary_df), "\n")
+    
+    # Temperature insights
+    cat("\nTemperature patterns:\n")
+    cat("- Peak temperature range:", 
+        sprintf("%.2f°C (%s) to %.2f°C (%s)", 
+                min(summary_df$peak_temperature, na.rm = TRUE),
+                summary_df$scenario[which.min(summary_df$peak_temperature)],
+                max(summary_df$peak_temperature, na.rm = TRUE),
+                summary_df$scenario[which.max(summary_df$peak_temperature)]), "\n")
+    
+    # Cost insights
+    cat("\nCost patterns:\n")
+    cat("- Total cost range:", 
+        sprintf("%.1f (%s) to %.1f (%s) trillion $", 
+                min(summary_df$total_cost, na.rm = TRUE),
+                summary_df$scenario[which.min(summary_df$total_cost)],
+                max(summary_df$total_cost, na.rm = TRUE),
+                summary_df$scenario[which.max(summary_df$total_cost)]), "\n")
+    
+    # Strategy insights
+    cat("\nStrategy patterns:\n")
+    
+    # Mitigation patterns
+    min_mitig_scenario <- summary_df$scenario[which.min(summary_df$total_mitigation_units)]
+    max_mitig_scenario <- summary_df$scenario[which.max(summary_df$total_mitigation_units)]
+    cat("- Mitigation reliance: Lowest in", min_mitig_scenario, 
+        ", Highest in", max_mitig_scenario, "\n")
+    
+    # CDR patterns
+    min_cdr_scenario <- summary_df$scenario[which.min(summary_df$total_cdr_units)]
+    max_cdr_scenario <- summary_df$scenario[which.max(summary_df$total_cdr_units)]
+    cat("- CDR reliance: Lowest in", min_cdr_scenario, 
+        ", Highest in", max_cdr_scenario, "\n")
+    
+    # Calculate mitigation vs CDR ratios
+    summary_df$mitig_cdr_ratio <- summary_df$total_mitigation_units / 
+      pmax(summary_df$total_cdr_units, 0.1)  # Avoid division by zero
+    
+    balanced_scenario <- summary_df$scenario[which.min(abs(summary_df$mitig_cdr_ratio - 1))]
+    mitig_heavy_scenario <- summary_df$scenario[which.max(summary_df$mitig_cdr_ratio)]
+    cdr_heavy_scenario <- summary_df$scenario[which.min(summary_df$mitig_cdr_ratio)]
+    
+    cat("- Most balanced strategy (mitigation ≈ CDR):", balanced_scenario, "\n")
+    cat("- Most mitigation-heavy strategy:", mitig_heavy_scenario, "\n")
+    cat("- Most CDR-heavy strategy:", cdr_heavy_scenario, "\n")
+    
+    # Temperature overshoot insights
+    if ("years_above_1p5" %in% names(summary_df)) {
+      cat("\nTemperature overshoot:\n")
+      min_overshoot <- summary_df$scenario[which.min(summary_df$years_above_1p5)]
+      max_overshoot <- summary_df$scenario[which.max(summary_df$years_above_1p5)]
+      cat("- Shortest overshoot period:", min_overshoot, 
+          "(", min(summary_df$years_above_1p5), "years )\n")
+      cat("- Longest overshoot period:", max_overshoot,
+          "(", max(summary_df$years_above_1p5), "years )\n")
+    }
+    
+    # Cost efficiency insights
+    summary_df$cost_per_degree_avoided <- summary_df$total_cost / 
+      pmax(summary_df$peak_temperature - 1.0, 0.1)  # Cost per degree above 1°C baseline
+    
+    most_efficient <- summary_df$scenario[which.min(summary_df$cost_per_degree_avoided)]
+    least_efficient <- summary_df$scenario[which.max(summary_df$cost_per_degree_avoided)]
+    
+    cat("\nCost efficiency:\n")
+    cat("- Most cost-efficient scenario:", most_efficient, "\n")
+    cat("- Least cost-efficient scenario:", least_efficient, "\n")
+    
+    # Policy recommendations
+    cat("\nKey policy insights:\n")
+    cat("- Baseline emissions pathway significantly affects optimal strategy\n")
+    cat("- Higher baseline emissions generally require more CDR deployment\n")
+    cat("- Trade-offs between cost, temperature, and strategy mix vary by scenario\n")
+    cat("- Early action scenarios (lower baselines) tend to be more cost-effective\n")
+  }
+  
+} else if (exists("scenario_results")) {
+  # Scenario analysis was run but no valid results
+  cat("⚠ No valid scenario analysis results for visualization\n")
+  if (!is.null(scenario_results$failed_scenarios) && length(scenario_results$failed_scenarios) > 0) {
+    cat("All", length(scenario_results$failed_scenarios), "scenarios failed\n")
+    cat("Failed scenarios:", paste(names(scenario_results$failed_scenarios), collapse = ", "), "\n")
+  } else {
+    cat("Scenario analysis completed but produced no successful results\n")
+  }
+  
+} else {
+  # Scenario analysis chunk was not run
+  cat("⚠ Scenario analysis results not found\n")
+  cat("Please run the scenario_comparison_analysis chunk first, or load existing results:\n")
+  cat("# scenario_results <- readRDS('path/to/scenario_results.rds')\n")
+}
+
+```
