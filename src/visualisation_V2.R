@@ -601,6 +601,7 @@ create_years_above_1p5_heatmap <- function(results_df,
   if (add_contours) {
     p <- p + 
       geom_contour(aes(z = years_above_1p5), 
+                   breaks = c(51, 52, 53, 54, 55, 56),
                    color = "white", 
                    alpha = 0.6, 
                    linewidth = 0.5)
@@ -1176,3 +1177,169 @@ create_multi_scenario_dashboard <- function(scenario_results,
 # create_multi_scenario_dashboard(scenario_results$scenario_results, 
 #                                save_plot = TRUE, 
 #                                filename = "my_scenario_comparison.pdf")
+
+#' @title Create Delayed Deployment Heatmap Dashboard
+#' @description Creates a 2×2 dashboard showing all four delay analysis heatmaps
+#' @param results_df Data frame from run_delayed_deployment_analysis with columns:
+#'   mitigation_delay, cdr_delay, peak_temperature, total_cost, years_above_1p5, total_cdr_units, feasible
+#' @param scenario_name Name of scenario for subtitle (default: "Unknown")
+#' @param save_plot Whether to save the plot (default: FALSE)
+#' @param filename Custom filename for saving
+#' @return Combined ggplot object
+create_delay_heatmap_dashboard <- function(results_df, 
+                                           scenario_name = "Unknown",
+                                           save_plot = FALSE,
+                                           filename = NULL) {
+  
+  # Check if required data exists
+  required_cols <- c("mitigation_delay", "cdr_delay", "peak_temperature", "total_cost", 
+                     "years_above_1p5", "total_cdr_units", "feasible")
+  missing_cols <- setdiff(required_cols, names(results_df))
+  
+  if (length(missing_cols) > 0) {
+    stop("Missing required columns: ", paste(missing_cols, collapse = ", "))
+  }
+  
+  # Create individual heatmaps with improved contour settings
+  
+  # 1. Peak Temperature Heatmap (top-left)
+  p1 <- create_peak_temperature_heatmap(
+    results_df = results_df,
+    title = "Peak Temperature",
+    add_contours = TRUE
+  )
+  
+  # 2. Years Above 1.5°C Heatmap (top-right) - with fixed contours
+  p2 <- create_years_above_1p5_heatmap(
+    results_df = results_df,
+    title = "Years Above 1.5°C",
+    add_contours = TRUE
+  )
+  
+  # Override contours for years above 1.5°C to fix doubled-up lines
+  if (!is.null(p2)) {
+    # Determine appropriate contour breaks based on data range
+    years_range <- range(results_df$years_above_1p5, na.rm = TRUE)
+    contour_breaks <- seq(ceiling(years_range[1]), floor(years_range[2]), by = 1)
+    
+    # Rebuild the plot with specific contour breaks
+    plot_data <- results_df %>%
+      filter(!is.na(years_above_1p5))
+    
+    my_theme <- theme_bw() +
+      theme(
+        text = element_text(size = 10),
+        plot.title = element_text(size = 10),
+        axis.title = element_text(size = 9),
+        axis.text = element_text(size = 8),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.title = element_text(size = 9),
+        legend.text = element_text(size = 8)
+      )
+    
+    p2 <- ggplot(plot_data, aes(x = mitigation_delay, y = cdr_delay, fill = years_above_1p5)) +
+      geom_tile() +
+      scale_fill_viridis_c(
+        name = "Years\nAbove\n1.5°C",
+        option = "plasma",
+        direction = -1
+      ) +
+      geom_contour(aes(z = years_above_1p5), 
+                   breaks = contour_breaks,
+                   color = "white", 
+                   alpha = 0.8, 
+                   linewidth = 0.5) +
+      labs(
+        title = "Years Above 1.5°C",
+        x = "Mitigation Deployment Delay (years)",
+        y = "CDR Deployment Delay (years)"
+      ) +
+      my_theme +
+      coord_equal()
+    
+    # Add infeasible markers
+    infeasible_data <- plot_data %>% filter(!feasible)
+    if (nrow(infeasible_data) > 0) {
+      p2 <- p2 + 
+        geom_point(data = infeasible_data, 
+                   aes(x = mitigation_delay, y = cdr_delay), 
+                   shape = 4, size = 2, color = "red", alpha = 0.8, 
+                   stroke = 1.5, inherit.aes = FALSE)
+    }
+  }
+  
+  # 3. Total Cost Heatmap (bottom-left)
+  p3 <- create_total_cost_heatmap(
+    results_df = results_df,
+    title = "Total Cost",
+    add_contours = TRUE
+  )
+  
+  # 4. CDR Units Heatmap (bottom-right)
+  p4 <- create_cdr_units_heatmap(
+    results_df = results_df,
+    title = "Total CDR Units",
+    add_contours = TRUE
+  )
+  
+  # Check if any plots failed to create
+  plots_created <- sum(!sapply(list(p1, p2, p3, p4), is.null))
+  
+  if (plots_created == 0) {
+    stop("No valid heatmaps could be created from the data")
+  }
+  
+  # Create 2×2 layout using patchwork
+  combined <- (p1 + p2) / (p3 + p4)
+  
+  # Count feasible combinations for subtitle
+  n_combinations <- nrow(results_df)
+  n_feasible <- sum(results_df$feasible, na.rm = TRUE)
+  
+  # Add overall title and subtitle (matching existing dashboard style)
+  final_plot <- combined + 
+    plot_annotation(
+      title = paste0("Delayed Deployment Analysis: ", scenario_name),
+      subtitle = paste0("Total combinations: ", n_combinations, " | Feasible: ", n_feasible, 
+                        " (", sprintf("%.1f%%)", 100 * n_feasible / n_combinations)),
+      theme = theme(
+        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 10, hjust = 0.5),
+        plot.margin = margin(10, 0, 10, 0)
+      )
+    )
+  
+  # Save if requested
+  if (save_plot) {
+    if (is.null(filename)) {
+      filename <- paste0("delay_heatmap_dashboard_", scenario_name, "_", 
+                         format(Sys.time(), "%Y%m%d_%H%M%S"), ".pdf")
+    }
+    
+    filepath <- here::here("figs", filename)
+    ggsave(filepath, final_plot, width = 190, height = 190, units = "mm", device = cairo_pdf)
+    cat("Delay heatmap dashboard saved to:", filepath, "\n")
+  }
+  
+  return(final_plot)
+}
+
+# Usage example:
+# Assuming you have delay_results from run_delayed_deployment_analysis():
+#
+# # Create dashboard
+# dashboard <- create_delay_heatmap_dashboard(
+#   results_df = delay_results$results,
+#   scenario_name = "SSP3-Baseline",
+#   save_plot = FALSE
+# )
+# print(dashboard)
+#
+# # Save dashboard
+# create_delay_heatmap_dashboard(
+#   results_df = delay_results$results,
+#   scenario_name = "SSP3-Baseline", 
+#   save_plot = TRUE,
+#   filename = "my_delay_analysis.pdf"
+# )

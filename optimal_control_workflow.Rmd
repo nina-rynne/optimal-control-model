@@ -170,6 +170,7 @@ cat("\nDemo results saved to:", demo_filepath, "\n")
 
 # Generate timestamp for consistent file naming
 workflow_timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+demo_scenario = "SSP3-Baseline"
 
 # Source required functions
 source(here::here("src", "optimal_control_core.R"))
@@ -331,113 +332,18 @@ if (exists("sensitivity_results") && length(sensitivity_results$successful_runs)
 
 ```{r delayed_deployment_analysis, eval=FALSE}
 
-# Delayed deployment analysis to examine policy implications
-# Tests combinations of mitigation and CDR deployment delays
+source(here::here("src", "delayed_deployment_analysis.R"))
 
-# Generate timestamp for consistent file naming
 workflow_timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
 
-# Source required functions
-source(here::here("src", "optimal_control_core.R"))
-source(here::here("src", "optimal_control_runners.R"))
-
-cat("=== DELAYED DEPLOYMENT ANALYSIS ===\n")
-
-# USER CHOICE: Modify these settings for different analysis resolution
-max_delay_years <- 40      # Maximum delay to test (years)
-delay_step_size <- 5       # Step size for delay grid (years)
-use_parallel_processing <- TRUE
-
-cat("Maximum delay:", max_delay_years, "years\n")
-cat("Step size:", delay_step_size, "years\n")
-cat("Scenario:", demo_scenario, "\n")
-
-# Calculate number of combinations for user information
-delay_sequence <- seq(0, max_delay_years, by = delay_step_size)
-n_combinations <- length(delay_sequence)^2
-cat("Total combinations to test:", n_combinations, "\n")
-cat("Estimated runtime: ~", round(n_combinations * 0.5, 1), "minutes (parallel) or ~", 
-    round(n_combinations * 2, 1), "minutes (serial)\n\n")
-
-# Record start time
-delay_start_time <- Sys.time()
-
-# Run delayed deployment analysis using first parameter set
-# (Use single parameter set to focus on policy implications rather than parameter uncertainty)
-delay_results <- run_delayed_deployment_analysis(
-  parameter_df = parameter_df[1, ],  # Use first parameter set for policy analysis
+delay_results <- run_optimised_delayed_deployment(
+  parameter_df = parameter_df,
   emissions_df = emissions_df,
   economic_df = economic_df,
-  scenario = demo_scenario,
-  max_delay_years = max_delay_years,
-  delay_step_size = delay_step_size,
-  use_parallel = use_parallel_processing,
-  verbose = TRUE
+  scenario = "SSP3-Baseline",
+  max_delay_years = 70,
+  delay_step_size = 1
 )
-
-# Calculate total runtime
-delay_runtime <- difftime(Sys.time(), delay_start_time, units = "mins")
-
-# Report results
-if (!is.null(delay_results$results_grid)) {
-  cat("\n✓ DELAYED DEPLOYMENT ANALYSIS COMPLETED!\n")
-  cat("Total combinations tested:", nrow(delay_results$results_grid), "\n")
-  cat("Converged solutions:", delay_results$summary_stats$n_converged, 
-      sprintf(" (%.1f%%)\n", 100 * delay_results$summary_stats$convergence_rate))
-  cat("Feasible solutions:", delay_results$summary_stats$n_feasible,
-      sprintf(" (%.1f%%)\n", 100 * delay_results$summary_stats$feasibility_rate))
-  cat("Total runtime:", sprintf("%.1f", delay_runtime), "minutes\n")
-  
-  # Show summary statistics for feasible solutions
-  if (nrow(delay_results$feasible_combinations) > 0) {
-    cat("\nFeasible solutions summary:\n")
-    
-    if (!is.null(delay_results$summary_stats$peak_temp_range)) {
-      cat("Peak temperature range:", 
-          sprintf("%.2f - %.2f°C", 
-                  delay_results$summary_stats$peak_temp_range["min"],
-                  delay_results$summary_stats$peak_temp_range["max"]), "\n")
-    }
-    
-    if (!is.null(delay_results$summary_stats$cost_range)) {
-      cat("Total cost range:", 
-          sprintf("%.1f - %.1f trillion $", 
-                  delay_results$summary_stats$cost_range["min"],
-                  delay_results$summary_stats$cost_range["max"]), "\n")
-    }
-    
-    # Find the combination with minimum cost
-    min_cost_row <- delay_results$feasible_combinations[
-      which.min(delay_results$feasible_combinations$total_cost), ]
-    cat("Minimum cost combination: Mitigation delay =", min_cost_row$mitigation_delay, 
-        "years, CDR delay =", min_cost_row$cdr_delay, "years\n")
-    
-    # Find the combination with minimum peak temperature
-    min_temp_row <- delay_results$feasible_combinations[
-      which.min(delay_results$feasible_combinations$peak_temperature), ]
-    cat("Minimum peak temperature combination: Mitigation delay =", min_temp_row$mitigation_delay,
-        "years, CDR delay =", min_temp_row$cdr_delay, "years\n")
-    
-  } else {
-    cat("\n⚠ No feasible combinations found!\n")
-    cat("All delay combinations resulted in solutions that missed the emissions target.\n")
-    cat("Consider:\n")
-    cat("- Reducing maximum delay years\n")
-    cat("- Relaxing the emissions target\n")
-    cat("- Checking parameter settings\n")
-  }
-  
-} else {
-  cat("\n✗ DELAYED DEPLOYMENT ANALYSIS FAILED\n")
-  cat("No results generated. Check parameter settings and model configuration.\n")
-}
-
-# Save delayed deployment results
-delay_filename <- paste0("delay_results_", demo_scenario, "_", workflow_timestamp, ".rds")
-delay_filepath <- here::here("output", delay_filename)
-saveRDS(delay_results, delay_filepath)
-
-cat("\nDelayed deployment results saved to:", delay_filepath, "\n")
 
 ```
 
@@ -449,118 +355,91 @@ cat("\nDelayed deployment results saved to:", delay_filepath, "\n")
 # Source visualization functions
 source(here::here("src", "visualisation_V2.R"))
 
+demo_scenario = "SSP3-Baseline"
+#workflow_timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
 cat("=== DELAYED DEPLOYMENT VISUALIZATION ===\n")
 
 # Check if delay results exist
-if (exists("delay_results") && !is.null(delay_results$results_grid)) {
+if (exists("delay_results") && !is.null(delay_results$results)) {
   
-  n_combinations <- nrow(delay_results$results_grid)
-  n_feasible <- nrow(delay_results$feasible_combinations)
+  n_combinations <- nrow(delay_results$results)
+  n_feasible <- nrow(delay_results$feasible_results)
   
-  cat("Creating heatmaps for", n_combinations, "delay combinations\n")
+  cat("Creating heatmap dashboard for", n_combinations, "delay combinations\n")
   cat("Feasible combinations:", n_feasible, "\n\n")
   
-  # Create individual heatmaps
-  cat("Generating heatmaps...\n")
+  cat("Generating 2×2 heatmap dashboard...\n")
   
-  # 1. Peak Temperature Heatmap
-  peak_temp_heatmap <- create_peak_temperature_heatmap(
-    results_df = delay_results$results_grid,
-    title = paste("Peak Temperature vs Deployment Delays -", demo_scenario),
-    add_contours = TRUE
+  # Create the comprehensive dashboard
+  delay_dashboard <- create_delay_heatmap_dashboard(
+    results_df = delay_results$results,
+    scenario_name = demo_scenario,
+    save_plot = FALSE
   )
   
-  # 2. Total Cost Heatmap
-  cost_heatmap <- create_total_cost_heatmap(
-    results_df = delay_results$results_grid,
-    title = paste("Total Cost vs Deployment Delays -", demo_scenario),
-    add_contours = TRUE
+  # Display the dashboard
+  print(delay_dashboard)
+  
+  # Save the dashboard as PDF
+  delay_plot_filename <- paste0("delay_heatmap_dashboard_", demo_scenario, "_", workflow_timestamp, ".pdf")
+  delay_plot_filepath <- here::here("figs", delay_plot_filename)
+  
+  ggsave(
+    filename = delay_plot_filepath,
+    plot = delay_dashboard,
+    width = 190, 
+    height = 190, 
+    units = "mm",
+    device = cairo_pdf
   )
   
-  # 3. Years Above 1.5°C Heatmap (if data exists)
-  if ("years_above_1p5" %in% names(delay_results$results_grid)) {
-    years_1p5_heatmap <- create_years_above_1p5_heatmap(
-      results_df = delay_results$results_grid,
-      title = paste("Years Above 1.5°C vs Deployment Delays -", demo_scenario),
-      add_contours = TRUE
-    )
-  }
-  
-  # 4. CDR Units Heatmap (if data exists)
-  if ("total_cdr_units" %in% names(delay_results$results_grid)) {
-    cdr_heatmap <- create_cdr_units_heatmap(
-      results_df = delay_results$results_grid,
-      title = paste("Total CDR Units vs Deployment Delays -", demo_scenario),
-      add_contours = TRUE
-    )
-  }
-  
-  # Display heatmaps
-  cat("Displaying heatmaps...\n")
-  print(peak_temp_heatmap)
-  print(cost_heatmap)
-  
-  if (exists("years_1p5_heatmap")) {
-    print(years_1p5_heatmap)
-  }
-  
-  if (exists("cdr_heatmap")) {
-    print(cdr_heatmap)
-  }
-  
-  # Save heatmaps as individual PDF files
-  cat("Saving heatmaps...\n")
-  
-  # Peak temperature heatmap
-  peak_temp_filename <- paste0("peak_temperature_heatmap_", demo_scenario, "_", workflow_timestamp, ".pdf")
-  peak_temp_filepath <- here::here("figs", peak_temp_filename)
-  ggsave(peak_temp_filepath, peak_temp_heatmap, width = 190, height = 140, units = "mm", device = cairo_pdf)
-  
-  # Total cost heatmap
-  cost_filename <- paste0("total_cost_heatmap_", demo_scenario, "_", workflow_timestamp, ".pdf")
-  cost_filepath <- here::here("figs", cost_filename)
-  ggsave(cost_filepath, cost_heatmap, width = 190, height = 140, units = "mm", device = cairo_pdf)
-  
-  # Years above 1.5°C heatmap (if created)
-  if (exists("years_1p5_heatmap")) {
-    years_1p5_filename <- paste0("years_above_1p5_heatmap_", demo_scenario, "_", workflow_timestamp, ".pdf")
-    years_1p5_filepath <- here::here("figs", years_1p5_filename)
-    ggsave(years_1p5_filepath, years_1p5_heatmap, width = 190, height = 140, units = "mm", device = cairo_pdf)
-  }
-  
-  # CDR units heatmap (if created)
-  if (exists("cdr_heatmap")) {
-    cdr_filename <- paste0("cdr_units_heatmap_", demo_scenario, "_", workflow_timestamp, ".pdf")
-    cdr_filepath <- here::here("figs", cdr_filename)
-    ggsave(cdr_filepath, cdr_heatmap, width = 190, height = 140, units = "mm", device = cairo_pdf)
-  }
-  
-  cat("✓ Heatmaps saved successfully:\n")
-  cat("-", peak_temp_filepath, "\n")
-  cat("-", cost_filepath, "\n")
-  if (exists("years_1p5_heatmap")) cat("-", years_1p5_filepath, "\n")
-  if (exists("cdr_heatmap")) cat("-", cdr_filepath, "\n")
+  cat("✓ Delay heatmap dashboard saved to:", delay_plot_filepath, "\n")
   
   # Summary insights
   cat("\nKey insights from delay analysis:\n")
   if (n_feasible > 0) {
-    min_cost_combo <- delay_results$feasible_combinations[which.min(delay_results$feasible_combinations$total_cost), ]
-    min_temp_combo <- delay_results$feasible_combinations[which.min(delay_results$feasible_combinations$peak_temperature), ]
+    min_cost_combo <- delay_results$feasible_results[which.min(delay_results$feasible_results$total_cost), ]
+    min_temp_combo <- delay_results$feasible_results[which.min(delay_results$feasible_results$peak_temperature), ]
     
     cat("- Lowest cost solution: Mitigation delay =", min_cost_combo$mitigation_delay, 
         "years, CDR delay =", min_cost_combo$cdr_delay, "years\n")
     cat("- Lowest peak temperature: Mitigation delay =", min_temp_combo$mitigation_delay,
         "years, CDR delay =", min_temp_combo$cdr_delay, "years\n")
-    cat("- Trade-off between cost and temperature evident in heatmaps\n")
+    
+    # Additional insights using new metrics
+    if ("years_above_1p5" %in% names(delay_results$feasible_results)) {
+      min_overshoot_combo <- delay_results$feasible_results[which.min(delay_results$feasible_results$years_above_1p5), ]
+      cat("- Shortest overshoot period: Mitigation delay =", min_overshoot_combo$mitigation_delay,
+          "years, CDR delay =", min_overshoot_combo$cdr_delay, 
+          "years (", min_overshoot_combo$years_above_1p5, "years above 1.5°C)\n")
+    }
+    
+    if ("total_cdr_units" %in% names(delay_results$feasible_results)) {
+      min_cdr_combo <- delay_results$feasible_results[which.min(delay_results$feasible_results$total_cdr_units), ]
+      cat("- Lowest CDR requirement: Mitigation delay =", min_cdr_combo$mitigation_delay,
+          "years, CDR delay =", min_cdr_combo$cdr_delay, 
+          "years (", sprintf("%.1f", min_cdr_combo$total_cdr_units), "GtCO2 total CDR)\n")
+    }
+    
+    cat("- Trade-offs between cost, temperature, overshoot duration, and CDR reliance evident in dashboard\n")
   } else {
     cat("- No feasible combinations found within tested delay ranges\n")
     cat("- Consider reducing maximum delays or relaxing constraints\n")
   }
   
+  # Performance summary
+  if (!is.null(delay_results$run_info)) {
+    cat("\nAnalysis performance:\n")
+    cat("- Total runtime:", sprintf("%.1f", delay_results$run_info$total_time_minutes), "minutes\n")
+    cat("- Convergence rate:", sprintf("%.1f%%", 100 * delay_results$summary_stats$convergence_rate), "\n")
+    cat("- Feasibility rate:", sprintf("%.1f%%", 100 * delay_results$summary_stats$feasibility_rate), "\n")
+  }
+  
 } else if (exists("delay_results")) {
   # Delay analysis was run but no valid results
   cat("⚠ No valid delay analysis results for visualization\n")
-  cat("Delay analysis completed but produced no results grid\n")
+  cat("Delay analysis completed but produced no results\n")
   
 } else {
   # Delay analysis chunk was not run
@@ -879,3 +758,68 @@ if (exists("scenario_results") && !is.null(scenario_results$scenario_results)) {
 }
 
 ```
+
+
+
+```{r export-sensitivity-results-to-csv, eval=FALSE}
+# Create timestamp for all files
+timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+# Extract data from successful runs only
+successful_runs <- sensitivity_results$successful_runs
+
+# Initialize data frame with common columns
+n_runs <- length(successful_runs)
+df_base <- data.frame(
+  tcre = numeric(n_runs),
+  costmitigunit = numeric(n_runs),
+  costremovunit = numeric(n_runs),
+  econdampct = numeric(n_runs),
+  discrate = numeric(n_runs)
+)
+
+# Fill base data frame with parameter values
+for (i in 1:n_runs) {
+  params <- successful_runs[[i]]$parameters
+  df_base$tcre[i] <- params$tcre
+  df_base$costmitigunit[i] <- params$cost_mitig_unit
+  df_base$costremovunit[i] <- params$cost_remov_unit
+  df_base$econdampct[i] <- params$econ_dam_pct
+  df_base$discrate[i] <- params$disc_rate
+}
+
+# Create and save each CSV file
+# 1. Total cost
+df_totalcost <- df_base
+df_totalcost$Y <- sapply(successful_runs, function(x) x$total_cost)
+write.csv(df_totalcost, here("output", paste0("totalcost_", timestamp, ".csv")), row.names = FALSE)
+
+# 2. Total mitigation
+df_totalmitigation <- df_base
+df_totalmitigation$Y <- sapply(successful_runs, function(x) sum(x$qty_mitig))
+write.csv(df_totalmitigation, here("output", paste0("totalmitigation_", timestamp, ".csv")), row.names = FALSE)
+
+# 3. Total removal
+df_totalremoval <- df_base
+df_totalremoval$Y <- sapply(successful_runs, function(x) sum(x$qty_remov))
+write.csv(df_totalremoval, here("output", paste0("totalremoval_", timestamp, ".csv")), row.names = FALSE)
+
+# 4. Total abatement
+df_totalabatement <- df_base
+df_totalabatement$Y <- sapply(successful_runs, function(x) sum(x$qty_mitig) + sum(x$qty_remov))
+write.csv(df_totalabatement, here("output", paste0("totalabatement_", timestamp, ".csv")), row.names = FALSE)
+
+# 5. Peak temperature
+df_peaktemperature <- df_base
+df_peaktemperature$Y <- sapply(successful_runs, function(x) max(x$temperature_anomaly))
+write.csv(df_peaktemperature, here("output", paste0("peaktemperature_", timestamp, ".csv")), row.names = FALSE)
+
+# 6. Years above 1.5
+df_yearsabove15 <- df_base
+df_yearsabove15$Y <- sapply(successful_runs, function(x) sum(x$temperature_anomaly > 1.5))
+write.csv(df_yearsabove15, here("output", paste0("yearsabove15_", timestamp, ".csv")), row.names = FALSE)
+
+# Print confirmation
+cat("Created 6 CSV files with timestamp:", timestamp, "\n")
+```
+
