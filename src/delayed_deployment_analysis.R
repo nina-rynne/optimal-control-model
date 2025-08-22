@@ -164,6 +164,7 @@ fast_forward_backward_sweep <- function(parameters,
   peak_temperature <- max(temperature_anomaly)
   years_above_1p5 <- sum(temperature_anomaly > 1.5)
   total_cdr_units <- sum(qty_remov)
+  total_mitig_units <- sum(qty_mitig)
   
   # Fast cost calculation
   mitig_costs <- sum(cost_mitig_unit * qty_mitig^exp_mitig * discount_factors)
@@ -181,7 +182,8 @@ fast_forward_backward_sweep <- function(parameters,
     remov_cost = remov_costs,
     temp_cost = temp_costs,
     years_above_1p5 = years_above_1p5,
-    total_cdr_units = total_cdr_units
+    total_cdr_units = total_cdr_units,
+    total_mitig_units = total_mitig_units
   ))
 }
 
@@ -244,7 +246,8 @@ fast_shooting_method <- function(parameters,
       remov_cost = best_result$remov_cost,
       temp_cost = best_result$temp_cost,
       years_above_1p5 = best_result$years_above_1p5,
-      total_cdr_units = best_result$total_cdr_units
+      total_cdr_units = best_result$total_cdr_units,
+      total_mitig_units = best_result$total_mitig_units
     ))
   }
   
@@ -309,7 +312,8 @@ fast_shooting_method <- function(parameters,
         remov_cost = result_new$remov_cost,
         temp_cost = result_new$temp_cost,
         years_above_1p5 = result_new$years_above_1p5,
-        total_cdr_units = result_new$total_cdr_units
+        total_cdr_units = result_new$total_cdr_units,
+        total_mitig_units = result_new$total_mitig_units
       ))
     }
     
@@ -335,7 +339,8 @@ fast_shooting_method <- function(parameters,
     remov_cost = best_result$remov_cost,
     temp_cost = best_result$temp_cost,
     years_above_1p5 = best_result$years_above_1p5,
-    total_cdr_units = best_result$total_cdr_units
+    total_cdr_units = best_result$total_cdr_units,
+    total_mitig_units = best_result$total_mitig_units
   ))
 }
 
@@ -487,6 +492,7 @@ run_optimised_delayed_deployment <- function(parameter_df,
         feasible = abs(result$emission_gap) <= 50,
         years_above_1p5 = result$years_above_1p5,
         total_cdr_units = result$total_cdr_units,
+        total_mitig_units = result$total_mitig_units,
         stringsAsFactors = FALSE
       )
       
@@ -505,6 +511,7 @@ run_optimised_delayed_deployment <- function(parameter_df,
         feasible = FALSE,
         years_above_1p5 = NA,
         total_cdr_units = NA,
+        total_mitig_units = NA,
         stringsAsFactors = FALSE
       )
     })
@@ -692,3 +699,203 @@ create_delay_heatmap <- function(delay_results,
 # 
 # heatmap <- create_delay_heatmap(results)
 # print(heatmap)
+
+#' @title Multi-Scenario Delayed Deployment Analysis
+#' @description
+#' Runs delayed deployment analysis across all 5 SSP baseline scenarios automatically.
+#' This is an alternative to run_optimised_delayed_deployment() that processes multiple scenarios.
+#' 
+#' @param parameter_df Single-row data frame with model parameters
+#' @param emissions_df Data frame with emissions scenario data
+#' @param economic_df Data frame with economic scenario data
+#' @param scenario Ignored - all SSP scenarios are processed automatically
+#' @param target_emissions Target cumulative emissions (default: uses co2_target_2100)
+#' @param max_delay_years Maximum delay to test (default: 40)
+#' @param delay_step_size Step size for delay grid (default: 5)
+#' @param use_parallel Use parallel processing for large analyses (default: TRUE)
+#' @param parallel_threshold Minimum combinations to trigger parallel processing (default: 100)
+#' @param n_cores Number of cores for parallel processing (default: auto)
+#' @param verbose Print progress information (default: TRUE)
+#'
+#' @return List containing:
+#'   - results_by_scenario: Named list of results for each scenario
+#'   - combined_results: Single data frame with all results and scenario column
+#'   - summary_stats: Summary statistics across all scenarios
+#'   - run_info: Information about the analysis run
+#'
+#' @examples
+#' # Run multi-scenario delay analysis
+#' multi_results <- run_multi_scenario_delayed_deployment(
+#'   parameter_df = my_params,
+#'   emissions_df = emissions_data,
+#'   economic_df = economic_data,
+#'   scenario = "ignored",  # All SSPs processed automatically
+#'   max_delay_years = 40,
+#'   delay_step_size = 5
+#' )
+run_multi_scenario_delayed_deployment <- function(parameter_df,
+                                                  emissions_df,
+                                                  economic_df,
+                                                  scenario = NULL,  # Ignored parameter
+                                                  target_emissions = NULL,
+                                                  max_delay_years = 40,
+                                                  delay_step_size = 5,
+                                                  use_parallel = TRUE,
+                                                  parallel_threshold = 100,
+                                                  n_cores = NULL,
+                                                  verbose = TRUE) {
+  
+  # Input validation
+  if (!is.data.frame(parameter_df) || nrow(parameter_df) != 1) {
+    stop("parameter_df must be a single-row data frame")
+  }
+  
+  if (is.null(target_emissions)) {
+    target_emissions <- parameter_df$co2_target_2100
+  }
+  
+  # Define SSP scenarios to process
+  ssp_scenarios <- c("SSP1-Baseline", "SSP2-Baseline", "SSP3-Baseline", 
+                     "SSP4-Baseline", "SSP5-Baseline")
+  
+  # Check which scenarios are available in the data
+  available_scenarios <- unique(emissions_df$Scenario)
+  available_ssp_scenarios <- intersect(ssp_scenarios, available_scenarios)
+  missing_scenarios <- setdiff(ssp_scenarios, available_scenarios)
+  
+  if (verbose) {
+    cat("=== MULTI-SCENARIO DELAYED DEPLOYMENT ANALYSIS ===\n")
+    cat("Target emissions:", target_emissions, "GtCO2\n")
+    cat("Max delay:", max_delay_years, "years, Step:", delay_step_size, "years\n")
+    cat("Available SSP scenarios:", length(available_ssp_scenarios), "of", length(ssp_scenarios), "\n")
+    
+    if (length(missing_scenarios) > 0) {
+      cat("Missing scenarios:", paste(missing_scenarios, collapse = ", "), "\n")
+    }
+    
+    cat("Processing scenarios:", paste(available_ssp_scenarios, collapse = ", "), "\n\n")
+  }
+  
+  if (length(available_ssp_scenarios) == 0) {
+    stop("No SSP baseline scenarios found in the data")
+  }
+  
+  # Record overall start time
+  overall_start_time <- Sys.time()
+  
+  # Initialize results storage
+  results_by_scenario <- list()
+  failed_scenarios <- character()
+  
+  # Process each available scenario
+  for (i in seq_along(available_ssp_scenarios)) {
+    current_scenario <- available_ssp_scenarios[i]
+    
+    if (verbose) {
+      cat("Processing scenario", i, "of", length(available_ssp_scenarios), ":", current_scenario, "\n")
+    }
+    
+    # Run delay analysis for current scenario
+    tryCatch({
+      scenario_result <- run_optimised_delayed_deployment(
+        parameter_df = parameter_df,
+        emissions_df = emissions_df,
+        economic_df = economic_df,
+        scenario = current_scenario,
+        target_emissions = target_emissions,
+        max_delay_years = max_delay_years,
+        delay_step_size = delay_step_size,
+        use_parallel = use_parallel,
+        parallel_threshold = parallel_threshold,
+        n_cores = n_cores,
+        verbose = FALSE  # Suppress individual scenario output
+      )
+      
+      # Store successful result
+      results_by_scenario[[current_scenario]] <- scenario_result
+      
+      if (verbose) {
+        n_feasible <- nrow(scenario_result$feasible_results)
+        cat("  ✓ Completed:", n_feasible, "feasible combinations\n")
+      }
+      
+    }, error = function(e) {
+      failed_scenarios <- c(failed_scenarios, current_scenario)
+      if (verbose) {
+        cat("  ✗ Failed:", as.character(e), "\n")
+      }
+    })
+  }
+  
+  # Calculate overall runtime
+  total_runtime <- difftime(Sys.time(), overall_start_time, units = "mins")
+  
+  # Check if any scenarios succeeded
+  successful_scenarios <- names(results_by_scenario)
+  n_successful <- length(successful_scenarios)
+  n_failed <- length(failed_scenarios)
+  
+  if (n_successful == 0) {
+    stop("All scenarios failed to process")
+  }
+  
+  # Create combined results data frame
+  combined_results <- map_dfr(successful_scenarios, function(scenario_name) {
+    scenario_data <- results_by_scenario[[scenario_name]]$results
+    scenario_data$scenario <- scenario_name
+    scenario_data$scenario_short <- gsub("SSP([0-9])-Baseline", "SSP\\1", scenario_name)
+    return(scenario_data)
+  })
+  
+  # Calculate summary statistics
+  summary_stats <- list(
+    n_scenarios_requested = length(ssp_scenarios),
+    n_scenarios_available = length(available_ssp_scenarios),
+    n_scenarios_successful = n_successful,
+    n_scenarios_failed = n_failed,
+    successful_scenarios = successful_scenarios,
+    failed_scenarios = failed_scenarios,
+    total_combinations = nrow(combined_results),
+    total_feasible = sum(combined_results$feasible, na.rm = TRUE),
+    overall_feasibility_rate = sum(combined_results$feasible, na.rm = TRUE) / nrow(combined_results),
+    delay_parameters = list(
+      max_delay_years = max_delay_years,
+      delay_step_size = delay_step_size,
+      target_emissions = target_emissions
+    )
+  )
+  
+  # Create run information
+  run_info <- list(
+    start_time = overall_start_time,
+    end_time = Sys.time(),
+    total_runtime_minutes = as.numeric(total_runtime),
+    use_parallel = use_parallel,
+    n_cores = if (use_parallel) n_cores else 1,
+    scenarios_processed = successful_scenarios,
+    scenarios_failed = failed_scenarios
+  )
+  
+  # Print summary
+  if (verbose) {
+    cat("\n=== MULTI-SCENARIO ANALYSIS COMPLETE ===\n")
+    cat("Total runtime:", sprintf("%.1f", total_runtime), "minutes\n")
+    cat("Successful scenarios:", n_successful, "of", length(available_ssp_scenarios), "\n")
+    cat("Failed scenarios:", n_failed, "\n")
+    cat("Total combinations:", nrow(combined_results), "\n")
+    cat("Total feasible combinations:", sum(combined_results$feasible, na.rm = TRUE), "\n")
+    cat("Overall feasibility rate:", sprintf("%.1f%%", 100 * summary_stats$overall_feasibility_rate), "\n")
+    
+    if (n_failed > 0) {
+      cat("Failed scenarios:", paste(failed_scenarios, collapse = ", "), "\n")
+    }
+  }
+  
+  # Return comprehensive results
+  return(list(
+    results_by_scenario = results_by_scenario,
+    combined_results = combined_results,
+    summary_stats = summary_stats,
+    run_info = run_info
+  ))
+}

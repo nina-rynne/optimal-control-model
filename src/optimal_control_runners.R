@@ -709,6 +709,9 @@ run_delayed_deployment_analysis <- function(parameter_df,
 #' @return List containing:
 #'   - scenario_results: Named list of results for each scenario
 #'   - comparison_summary: Data frame comparing key metrics across scenarios
+#'   - year_first_1p5C: Vector of years when temperature first reaches 1.5°C for each scenario
+#'   - year_peak_temp: Vector of years when peak temperature occurs for each scenario
+#'   - year_mitig_capped: Vector of years when mitigation is first capped by emissions limit for each scenario
 #'   - run_info: Metadata about the comparison analysis
 #'
 #' @examples
@@ -837,8 +840,12 @@ run_scenario_comparison <- function(parameter_df,
       }
     }
     
-    # Create comparison summary
+    # Create comparison summary and extract additional metrics
     comparison_summary <- NULL
+    year_first_1p5C <- numeric(0)
+    year_peak_temp <- numeric(0)
+    year_mitig_capped <- numeric(0)
+    
     if (length(scenario_results) > 0) {
       summary_data <- list()
       
@@ -846,6 +853,40 @@ run_scenario_comparison <- function(parameter_df,
         scenario_name <- names(scenario_results)[i]
         run <- scenario_results[[i]]
         
+        # Extract new metrics
+        # 1. Year of first time temperature reaches 1.5°C
+        temp_1p5_indices <- which(run$temperature_anomaly >= 1.5)
+        year_first_1p5 <- if (length(temp_1p5_indices) > 0) {
+          run$years[temp_1p5_indices[1]]
+        } else {
+          NA
+        }
+        
+        # 2. Year of peak temperature
+        peak_temp_index <- which.max(run$temperature_anomaly)
+        year_peak <- run$years[peak_temp_index]
+        
+        # 3. Year when mitigation is capped by emissions limit
+        # Use epsilon from the solution (epsilon_used) or default value
+        epsilon <- if ("epsilon_used" %in% names(run)) run$epsilon_used else 0.01
+        
+        # Check where mitigation is very close to the constraint (indicating constraint is active)
+        # Use small tolerance to detect when qty_mitig ≈ baseline_emissions - epsilon
+        tolerance <- 0.001
+        max_allowed_mitig <- run$baseline_annual_emissions - epsilon
+        capped_indices <- which(abs(run$qty_mitig - max_allowed_mitig) < tolerance)
+        year_mitig_cap <- if (length(capped_indices) > 0) {
+          run$years[capped_indices[1]]
+        } else {
+          NA
+        }
+        
+        # Store for top-level list elements
+        year_first_1p5C <- c(year_first_1p5C, year_first_1p5)
+        year_peak_temp <- c(year_peak_temp, year_peak)
+        year_mitig_capped <- c(year_mitig_capped, year_mitig_cap)
+        
+        # Create summary data frame row
         summary_data[[i]] <- data.frame(
           scenario = scenario_name,
           final_emissions = run$final_emissions,
@@ -858,6 +899,9 @@ run_scenario_comparison <- function(parameter_df,
           total_mitigation_units = sum(run$qty_mitig),
           total_cdr_units = sum(run$qty_remov),
           years_above_1p5 = sum(run$temperature_anomaly > 1.5),
+          year_first_1p5C = year_first_1p5,
+          year_peak_temp = year_peak,
+          year_mitig_capped = year_mitig_cap,
           converged = run$converged,
           iterations = run$iterations,
           stringsAsFactors = FALSE
@@ -865,6 +909,11 @@ run_scenario_comparison <- function(parameter_df,
       }
       
       comparison_summary <- do.call(rbind, summary_data)
+      
+      # Name the vectors for top-level list elements
+      names(year_first_1p5C) <- names(scenario_results)
+      names(year_peak_temp) <- names(scenario_results)
+      names(year_mitig_capped) <- names(scenario_results)
     }
     
     # Calculate runtime
@@ -884,12 +933,34 @@ run_scenario_comparison <- function(parameter_df,
         cat("Total cost range:", sprintf("%.1f - %.1f trillion $",
                                          min(comparison_summary$total_cost),
                                          max(comparison_summary$total_cost)), "\n")
+        
+        # Report on new metrics
+        valid_1p5_years <- year_first_1p5C[!is.na(year_first_1p5C)]
+        if (length(valid_1p5_years) > 0) {
+          cat("First 1.5°C crossing range:", sprintf("%d - %d",
+                                                     min(valid_1p5_years),
+                                                     max(valid_1p5_years)), "\n")
+        } else {
+          cat("No scenarios reach 1.5°C\n")
+        }
+        
+        valid_cap_years <- year_mitig_capped[!is.na(year_mitig_capped)]
+        if (length(valid_cap_years) > 0) {
+          cat("Mitigation capping range:", sprintf("%d - %d",
+                                                   min(valid_cap_years),
+                                                   max(valid_cap_years)), "\n")
+        } else {
+          cat("No scenarios have mitigation capped by emissions limit\n")
+        }
       }
     }
     
     return(list(
       scenario_results = scenario_results,
       comparison_summary = comparison_summary,
+      year_first_1p5C = year_first_1p5C,
+      year_peak_temp = year_peak_temp,
+      year_mitig_capped = year_mitig_capped,
       failed_scenarios = failed_scenarios,
       run_info = list(
         scenarios = scenarios,

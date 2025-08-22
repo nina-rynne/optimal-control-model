@@ -89,7 +89,7 @@ source(here::here("src", "latin_hypercube_sampling.R"))
 source(here::here("src", "model_parameters.R"))
 
 # USER CHOICE: Change to desired number of parameter sets to generate
-lhs_parameter_df <- generate_lhs_samples(10)
+lhs_parameter_df <- generate_lhs_samples(n_samples = 10000, seed = 12345)
 
 # Add fixed model parameters to the LHS samples
 # Combines variable parameters from LHS with fixed model parameters
@@ -450,6 +450,660 @@ if (exists("delay_results") && !is.null(delay_results$results)) {
 
 ```
 
+```{r multi_delayed_deployment_analysis}
+# Source the delayed deployment analysis functions
+source(here::here("src", "delayed_deployment_analysis.R"))
+
+# Generate timestamp for consistent file naming
+workflow_timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+cat("=== MULTI-SCENARIO DELAYED DEPLOYMENT ANALYSIS ===\n")
+
+# Record start time
+multi_start_time <- Sys.time()
+
+# Run multi-scenario delayed deployment analysis
+# This processes all SSP scenarios (SSP1-Baseline through SSP5-Baseline) automatically
+multi_delay_results <- run_multi_scenario_delayed_deployment(
+  parameter_df = parameter_df[1, ],  # Use first parameter set for consistency
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = "ignored",  # This parameter is ignored - all SSPs processed automatically
+  target_emissions = NULL,  # Will use co2_target_2100 from parameter_df
+  max_delay_years = 70,     # USER CHOICE: Adjust maximum delay as needed
+  delay_step_size = 1,      # USER CHOICE: Adjust step size (1 = yearly, 5 = every 5 years)
+  use_parallel = TRUE,      # USER CHOICE: Set to FALSE if parallel processing causes issues
+  parallel_threshold = 100, # Only use parallel for >100 combinations
+  n_cores = NULL,          # Auto-detect cores (or specify number)
+  verbose = TRUE
+)
+
+# Calculate total runtime
+multi_runtime <- difftime(Sys.time(), multi_start_time, units = "mins")
+
+# Report results
+if (!is.null(multi_delay_results$combined_results)) {
+  cat("\n✓ MULTI-SCENARIO ANALYSIS COMPLETED!\n")
+  cat("Total scenarios processed:", multi_delay_results$summary_stats$n_scenarios_successful, 
+      "of", multi_delay_results$summary_stats$n_scenarios_available, "\n")
+  cat("Total runtime:", sprintf("%.1f", multi_runtime), "minutes\n")
+  cat("Total combinations:", nrow(multi_delay_results$combined_results), "\n")
+  cat("Total feasible combinations:", multi_delay_results$summary_stats$total_feasible, "\n")
+  cat("Overall feasibility rate:", sprintf("%.1f%%", 
+      100 * multi_delay_results$summary_stats$overall_feasibility_rate), "\n")
+  
+  # Show per-scenario summary
+  cat("\nPer-scenario results:\n")
+  scenario_summary <- multi_delay_results$combined_results %>%
+    group_by(scenario_short) %>%
+    summarise(
+      n_feasible = sum(feasible, na.rm = TRUE),
+      n_total = n(),
+      feasibility_rate = mean(feasible, na.rm = TRUE),
+      min_peak_temp = min(peak_temperature[feasible], na.rm = TRUE),
+      max_peak_temp = max(peak_temperature[feasible], na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  for (i in 1:nrow(scenario_summary)) {
+    cat("- ", scenario_summary$scenario_short[i], ": ",
+        scenario_summary$n_feasible[i], " feasible combinations (",
+        sprintf("%.1f%%", 100 * scenario_summary$feasibility_rate[i]), "), ",
+        "temp range: ", sprintf("%.2f-%.2f°C", 
+                               scenario_summary$min_peak_temp[i],
+                               scenario_summary$max_peak_temp[i]), "\n", sep = "")
+  }
+  
+  # Show failed scenarios if any
+  if (length(multi_delay_results$summary_stats$failed_scenarios) > 0) {
+    cat("\n⚠ Failed scenarios:", 
+        paste(multi_delay_results$summary_stats$failed_scenarios, collapse = ", "), "\n")
+  }
+  
+} else {
+  cat("\n✗ MULTI-SCENARIO ANALYSIS FAILED\n")
+  cat("No scenarios processed successfully\n")
+  
+  if (length(multi_delay_results$summary_stats$failed_scenarios) > 0) {
+    cat("Failed scenarios:", 
+        paste(multi_delay_results$summary_stats$failed_scenarios, collapse = ", "), "\n")
+  }
+}
+
+# Save results for later use
+multi_delay_filename <- paste0("multi_delay_results_", workflow_timestamp, ".rds")
+multi_delay_filepath <- here::here("output", multi_delay_filename)
+saveRDS(multi_delay_results, multi_delay_filepath)
+
+cat("\nMulti-scenario delay results saved to:", multi_delay_filepath, "\n")
+
+```
+
+
+```{r delayed_deployment_visualization_peaktemp, eval=FALSE}
+
+# Create peak temperature heatmap visualizations for multi-scenario delayed deployment analysis
+# Shows peak temperature vs deployment delays across SSP scenarios 1-5 in a 3×2 layout
+
+# Source visualization functions
+source(here::here("src", "visualisation_V2.R"))
+
+cat("=== DELAYED DEPLOYMENT PEAK TEMPERATURE VISUALIZATION ===\n")
+
+# Check if multi-scenario delay results exist
+if (exists("multi_delay_results") && !is.null(multi_delay_results$combined_results)) {
+  
+  n_total_combinations <- nrow(multi_delay_results$combined_results)
+  n_feasible <- sum(multi_delay_results$combined_results$feasible, na.rm = TRUE)
+  available_scenarios <- unique(multi_delay_results$combined_results$scenario_short)
+  
+  cat("Creating peak temperature heatmap dashboard for", length(available_scenarios), "SSP scenarios\n")
+  cat("Total delay combinations:", n_total_combinations, "\n")
+  cat("Feasible combinations:", n_feasible, "\n")
+  cat("Available scenarios:", paste(available_scenarios, collapse = ", "), "\n\n")
+  
+  cat("Generating 3×2 peak temperature heatmap dashboard...\n")
+  
+  # Create the peak temperature heatmap dashboard
+  peak_temp_dashboard <- create_multi_scenario_delay_peaktemp(
+    multi_scenario_results = multi_delay_results,
+    save_plot = FALSE,
+    add_contours = TRUE,
+    show_infeasible = TRUE
+  )
+  
+  # Display the dashboard
+  print(peak_temp_dashboard)
+  
+  # Save the dashboard as PDF
+  peak_temp_plot_filename <- paste0("peak_temp_multi_scenario_", workflow_timestamp, ".pdf")
+  peak_temp_plot_filepath <- here::here("figs", peak_temp_plot_filename)
+  
+  ggsave(
+    filename = peak_temp_plot_filepath,
+    plot = peak_temp_dashboard,
+    width = 297,  # A4 landscape width for 3×2 layout
+    height = 210, # A4 landscape height
+    units = "mm",
+    device = cairo_pdf
+  )
+  
+  cat("✓ Peak temperature dashboard saved to:", peak_temp_plot_filepath, "\n")
+  
+  # Summary insights for peak temperature analysis
+  cat("\nPeak Temperature Analysis Insights:\n")
+  
+  if (n_feasible > 0) {
+    feasible_data <- multi_delay_results$combined_results %>% filter(feasible == TRUE)
+    
+    # Overall temperature patterns
+    overall_temp_range <- range(feasible_data$peak_temperature, na.rm = TRUE)
+    cat("- Peak temperature range across all scenarios:", 
+        sprintf("%.2f°C to %.2f°C", overall_temp_range[1], overall_temp_range[2]), "\n")
+    
+    # Find scenarios with extreme temperatures
+    min_temp_combo <- feasible_data[which.min(feasible_data$peak_temperature), ]
+    max_temp_combo <- feasible_data[which.max(feasible_data$peak_temperature), ]
+    
+    cat("- Lowest peak temperature:", sprintf("%.2f°C", min_temp_combo$peak_temperature),
+        "achieved by", min_temp_combo$scenario_short, 
+        "with mitigation delay =", min_temp_combo$mitigation_delay,
+        "years, CDR delay =", min_temp_combo$cdr_delay, "years\n")
+    
+    cat("- Highest peak temperature:", sprintf("%.2f°C", max_temp_combo$peak_temperature),
+        "from", max_temp_combo$scenario_short,
+        "with mitigation delay =", max_temp_combo$mitigation_delay,
+        "years, CDR delay =", max_temp_combo$cdr_delay, "years\n")
+    
+    # Scenario-specific insights
+    scenario_summary <- feasible_data %>%
+      group_by(scenario_short) %>%
+      summarise(
+        min_peak_temp = min(peak_temperature, na.rm = TRUE),
+        max_peak_temp = max(peak_temperature, na.rm = TRUE),
+        n_feasible = n(),
+        .groups = "drop"
+      ) %>%
+      arrange(min_peak_temp)
+    
+    cat("\nPer-scenario temperature ranges:\n")
+    for (i in 1:nrow(scenario_summary)) {
+      cat("- ", scenario_summary$scenario_short[i], ": ",
+          sprintf("%.2f°C to %.2f°C", scenario_summary$min_peak_temp[i], scenario_summary$max_peak_temp[i]),
+          " (", scenario_summary$n_feasible[i], " feasible combinations)\n", sep = "")
+    }
+    
+    # Delay sensitivity insights
+    cat("\nDelay sensitivity insights:\n")
+    
+    # No delay scenario (if available)
+    no_delay_data <- feasible_data %>% filter(mitigation_delay == 0, cdr_delay == 0)
+    if (nrow(no_delay_data) > 0) {
+      cat("- Immediate deployment (no delays) temperatures: ",
+          paste(sprintf("%.2f°C (%s)", no_delay_data$peak_temperature, no_delay_data$scenario_short), 
+                collapse = ", "), "\n")
+    }
+    
+    # Maximum delay impact
+    max_delay_data <- feasible_data %>% 
+      filter(mitigation_delay == max(mitigation_delay), cdr_delay == max(cdr_delay))
+    if (nrow(max_delay_data) > 0) {
+      cat("- Maximum delays result in temperatures: ",
+          paste(sprintf("%.2f°C (%s)", max_delay_data$peak_temperature, max_delay_data$scenario_short), 
+                collapse = ", "), "\n")
+    }
+    
+    # Critical delay thresholds
+    temp_threshold <- 2.0  # Example threshold
+    above_threshold <- feasible_data %>% filter(peak_temperature > temp_threshold)
+    if (nrow(above_threshold) > 0) {
+      cat("- Combinations exceeding", temp_threshold, "°C:", 
+          sprintf("%.1f%% of feasible combinations", 100 * nrow(above_threshold) / n_feasible), "\n")
+    }
+    
+  } else {
+    cat("- No feasible combinations found within tested delay ranges\n")
+    cat("- Consider reducing maximum delays or adjusting model constraints\n")
+  }
+  
+  # Performance and coverage summary
+  if (!is.null(multi_delay_results$run_info)) {
+    cat("\nAnalysis performance:\n")
+    cat("- Total runtime:", sprintf("%.1f", multi_delay_results$run_info$total_time_minutes), "minutes\n")
+    
+    # Calculate scenario-specific convergence rates
+    convergence_by_scenario <- multi_delay_results$combined_results %>%
+      group_by(scenario_short) %>%
+      summarise(
+        convergence_rate = mean(feasible, na.rm = TRUE),
+        .groups = "drop"
+      )
+    
+    cat("- Convergence rates by scenario:\n")
+    for (i in 1:nrow(convergence_by_scenario)) {
+      cat("  ", convergence_by_scenario$scenario_short[i], ": ",
+          sprintf("%.1f%%", 100 * convergence_by_scenario$convergence_rate[i]), "\n", sep = "")
+    }
+  }
+  
+} else if (exists("multi_delay_results")) {
+  # Multi-scenario delay analysis was run but no valid results
+  cat("⚠ No valid multi-scenario delay analysis results for visualization\n")
+  cat("Multi-scenario delay analysis completed but produced no results\n")
+  
+} else {
+  # Multi-scenario delay analysis chunk was not run
+  cat("⚠ Multi-scenario delay analysis results not found\n")
+  cat("Please run the multi_delayed_deployment chunk first, or load existing results:\n")
+  cat("# multi_delay_results <- readRDS('path/to/multi_delay_results.rds')\n")
+}
+
+```
+
+```{r delayed_deployment_visualization_years1p5, eval=FALSE}
+
+# Create years above 1.5°C heatmap visualizations for multi-scenario delayed deployment analysis
+# Shows years above 1.5°C vs deployment delays across SSP scenarios 1-5 in a 3×2 layout
+
+# Source visualization functions
+source(here::here("src", "visualisation_V2.R"))
+
+cat("=== DELAYED DEPLOYMENT YEARS ABOVE 1.5°C VISUALIZATION ===\n")
+
+# Check if multi-scenario delay results exist
+if (exists("multi_delay_results") && !is.null(multi_delay_results$combined_results)) {
+  
+  n_total_combinations <- nrow(multi_delay_results$combined_results)
+  n_feasible <- sum(multi_delay_results$combined_results$feasible, na.rm = TRUE)
+  available_scenarios <- unique(multi_delay_results$combined_results$scenario_short)
+  
+  cat("Creating years above 1.5°C heatmap dashboard for", length(available_scenarios), "SSP scenarios\n")
+  cat("Total delay combinations:", n_total_combinations, "\n")
+  cat("Feasible combinations:", n_feasible, "\n")
+  cat("Available scenarios:", paste(available_scenarios, collapse = ", "), "\n\n")
+  
+  cat("Generating 3×2 years above 1.5°C heatmap dashboard...\n")
+  
+  # Create the years above 1.5°C heatmap dashboard
+  years1p5_dashboard <- create_multi_scenario_delay_years1p5(
+    multi_scenario_results = multi_delay_results,
+    save_plot = FALSE,
+    add_contours = TRUE,
+    show_infeasible = TRUE
+  )
+  
+  # Display the dashboard
+  print(years1p5_dashboard)
+  
+  # Save the dashboard as PDF
+  years1p5_plot_filename <- paste0("years1p5_multi_scenario_", workflow_timestamp, ".pdf")
+  years1p5_plot_filepath <- here::here("figs", years1p5_plot_filename)
+  
+  ggsave(
+    filename = years1p5_plot_filepath,
+    plot = years1p5_dashboard,
+    width = 297,  # A4 landscape width for 3×2 layout
+    height = 210, # A4 landscape height
+    units = "mm",
+    device = cairo_pdf
+  )
+  
+  cat("✓ Years above 1.5°C dashboard saved to:", years1p5_plot_filepath, "\n")
+  
+  # Summary insights for years above 1.5°C analysis
+  cat("\nYears Above 1.5°C Analysis Insights:\n")
+  
+  if (n_feasible > 0) {
+    feasible_data <- multi_delay_results$combined_results %>% filter(feasible == TRUE)
+    
+    # Overall years above 1.5°C patterns
+    overall_years_range <- range(feasible_data$years_above_1p5, na.rm = TRUE)
+    cat("- Years above 1.5°C range across all scenarios:", 
+        sprintf("%.0f to %.0f years", overall_years_range[1], overall_years_range[2]), "\n")
+    
+    # Find scenarios with extreme values
+    min_years_combo <- feasible_data[which.min(feasible_data$years_above_1p5), ]
+    max_years_combo <- feasible_data[which.max(feasible_data$years_above_1p5), ]
+    
+    cat("- Shortest overshoot period:", sprintf("%.0f years", min_years_combo$years_above_1p5),
+        "achieved by", min_years_combo$scenario_short, 
+        "with mitigation delay =", min_years_combo$mitigation_delay,
+        "years, CDR delay =", min_years_combo$cdr_delay, "years\n")
+    
+    cat("- Longest overshoot period:", sprintf("%.0f years", max_years_combo$years_above_1p5),
+        "from", max_years_combo$scenario_short,
+        "with mitigation delay =", max_years_combo$mitigation_delay,
+        "years, CDR delay =", max_years_combo$cdr_delay, "years\n")
+    
+    # Scenario-specific insights
+    scenario_summary <- feasible_data %>%
+      group_by(scenario_short) %>%
+      summarise(
+        min_years_1p5 = min(years_above_1p5, na.rm = TRUE),
+        max_years_1p5 = max(years_above_1p5, na.rm = TRUE),
+        median_years_1p5 = median(years_above_1p5, na.rm = TRUE),
+        n_feasible = n(),
+        .groups = "drop"
+      ) %>%
+      arrange(min_years_1p5)
+    
+    cat("\nPer-scenario overshoot duration ranges:\n")
+    for (i in 1:nrow(scenario_summary)) {
+      cat("- ", scenario_summary$scenario_short[i], ": ",
+          sprintf("%.0f to %.0f years", scenario_summary$min_years_1p5[i], scenario_summary$max_years_1p5[i]),
+          " (median: ", sprintf("%.0f", scenario_summary$median_years_1p5[i]), " years, ",
+          scenario_summary$n_feasible[i], " feasible combinations)\n", sep = "")
+    }
+    
+    # Delay sensitivity insights
+    cat("\nDelay sensitivity insights:\n")
+    
+    # No delay scenario (if available)
+    no_delay_data <- feasible_data %>% filter(mitigation_delay == 0, cdr_delay == 0)
+    if (nrow(no_delay_data) > 0) {
+      cat("- Immediate deployment (no delays) overshoot periods: ",
+          paste(sprintf("%.0f years (%s)", no_delay_data$years_above_1p5, no_delay_data$scenario_short), 
+                collapse = ", "), "\n")
+    }
+    
+    # Maximum delay impact
+    max_delay_data <- feasible_data %>% 
+      filter(mitigation_delay == max(mitigation_delay), cdr_delay == max(cdr_delay))
+    if (nrow(max_delay_data) > 0) {
+      cat("- Maximum delays result in overshoot periods: ",
+          paste(sprintf("%.0f years (%s)", max_delay_data$years_above_1p5, max_delay_data$scenario_short), 
+                collapse = ", "), "\n")
+    }
+    
+    # Critical overshoot thresholds
+    short_overshoot_threshold <- 50  # Example threshold for "short" overshoot
+    long_overshoot_threshold <- 60   # Example threshold for "long" overshoot
+    
+    short_overshoot <- feasible_data %>% filter(years_above_1p5 <= short_overshoot_threshold)
+    long_overshoot <- feasible_data %>% filter(years_above_1p5 >= long_overshoot_threshold)
+    
+    if (nrow(short_overshoot) > 0) {
+      cat("- Combinations with overshoot ≤", short_overshoot_threshold, "years:", 
+          sprintf("%.1f%% of feasible combinations", 100 * nrow(short_overshoot) / n_feasible), "\n")
+    }
+    
+    if (nrow(long_overshoot) > 0) {
+      cat("- Combinations with overshoot ≥", long_overshoot_threshold, "years:", 
+          sprintf("%.1f%% of feasible combinations", 100 * nrow(long_overshoot) / n_feasible), "\n")
+    }
+    
+    # Relationship between delays and overshoot duration
+    cat("\nDelay impact patterns:\n")
+    delay_impact <- feasible_data %>%
+      group_by(mitigation_delay, cdr_delay) %>%
+      summarise(
+        mean_years_1p5 = mean(years_above_1p5, na.rm = TRUE),
+        .groups = "drop"
+      )
+    
+    no_delay_mean <- delay_impact %>% filter(mitigation_delay == 0, cdr_delay == 0) %>% pull(mean_years_1p5)
+    max_delay_mean <- delay_impact %>% 
+      filter(mitigation_delay == max(mitigation_delay), cdr_delay == max(cdr_delay)) %>% 
+      pull(mean_years_1p5)
+    
+    if (length(no_delay_mean) > 0 && length(max_delay_mean) > 0) {
+      delay_penalty <- max_delay_mean - no_delay_mean
+      cat("- Average overshoot penalty from maximum delays: +", sprintf("%.1f years", delay_penalty), "\n")
+    }
+    
+  } else {
+    cat("- No feasible combinations found within tested delay ranges\n")
+    cat("- Consider reducing maximum delays or adjusting model constraints\n")
+  }
+  
+  # Performance and coverage summary
+  if (!is.null(multi_delay_results$run_info)) {
+    cat("\nAnalysis performance:\n")
+    cat("- Total runtime:", sprintf("%.1f", multi_delay_results$run_info$total_time_minutes), "minutes\n")
+    
+    # Calculate scenario-specific convergence rates
+    convergence_by_scenario <- multi_delay_results$combined_results %>%
+      group_by(scenario_short) %>%
+      summarise(
+        convergence_rate = mean(feasible, na.rm = TRUE),
+        .groups = "drop"
+      )
+    
+    cat("- Convergence rates by scenario:\n")
+    for (i in 1:nrow(convergence_by_scenario)) {
+      cat("  ", convergence_by_scenario$scenario_short[i], ": ",
+          sprintf("%.1f%%", 100 * convergence_by_scenario$convergence_rate[i]), "\n", sep = "")
+    }
+  }
+  
+} else if (exists("multi_delay_results")) {
+  # Multi-scenario delay analysis was run but no valid results
+  cat("⚠ No valid multi-scenario delay analysis results for visualization\n")
+  cat("Multi-scenario delay analysis completed but produced no results\n")
+  
+} else {
+  # Multi-scenario delay analysis chunk was not run
+  cat("⚠ Multi-scenario delay analysis results not found\n")
+  cat("Please run the multi_delayed_deployment chunk first, or load existing results:\n")
+  cat("# multi_delay_results <- readRDS('path/to/multi_delay_results.rds')\n")
+}
+
+```
+
+```{r delayed_deployment_visualization_cdr_proportion, eval=FALSE}
+
+# Create CDR proportion heatmap visualizations for multi-scenario delayed deployment analysis
+# Shows CDR proportion (%) vs deployment delays across SSP scenarios 1-5 in a 3×2 layout
+
+# Source visualization functions
+source(here::here("src", "visualisation_V2.R"))
+
+cat("=== DELAYED DEPLOYMENT CDR PROPORTION VISUALIZATION ===\n")
+
+# Check if multi-scenario delay results exist
+if (exists("multi_delay_results") && !is.null(multi_delay_results$combined_results)) {
+  
+  n_total_combinations <- nrow(multi_delay_results$combined_results)
+  n_feasible <- sum(multi_delay_results$combined_results$feasible, na.rm = TRUE)
+  available_scenarios <- unique(multi_delay_results$combined_results$scenario_short)
+  
+  cat("Creating CDR proportion heatmap dashboard for", length(available_scenarios), "SSP scenarios\n")
+  cat("Total delay combinations:", n_total_combinations, "\n")
+  cat("Feasible combinations:", n_feasible, "\n")
+  cat("Available scenarios:", paste(available_scenarios, collapse = ", "), "\n\n")
+  
+  cat("Generating 3×2 CDR proportion heatmap dashboard...\n")
+  
+  # Create the CDR proportion heatmap dashboard
+  cdr_proportion_dashboard <- create_multi_scenario_delay_cdr_proportion(
+    multi_scenario_results = multi_delay_results,
+    save_plot = FALSE,
+    add_contours = TRUE,
+    show_infeasible = TRUE
+  )
+  
+  # Display the dashboard
+  print(cdr_proportion_dashboard)
+  
+  # Save the dashboard as PDF
+  cdr_prop_plot_filename <- paste0("cdr_proportion_multi_scenario_", workflow_timestamp, ".pdf")
+  cdr_prop_plot_filepath <- here::here("figs", cdr_prop_plot_filename)
+  
+  ggsave(
+    filename = cdr_prop_plot_filepath,
+    plot = cdr_proportion_dashboard,
+    width = 297,  # A4 landscape width for 3×2 layout
+    height = 210, # A4 landscape height
+    units = "mm",
+    device = cairo_pdf
+  )
+  
+  cat("✓ CDR proportion dashboard saved to:", cdr_prop_plot_filepath, "\n")
+  
+  # Summary insights for CDR proportion analysis
+  cat("\nCDR Proportion Analysis Insights:\n")
+  
+  if (n_feasible > 0) {
+    # Calculate CDR proportion data for analysis
+    feasible_data <- multi_delay_results$combined_results %>% 
+      filter(feasible == TRUE) %>%
+      mutate(
+        total_abatement = total_cdr_units + total_mitig_units,
+        cdr_proportion = ifelse(total_abatement > 0, total_cdr_units / total_abatement, 0),
+        cdr_percentage = cdr_proportion * 100
+      )
+    
+    # Overall CDR proportion patterns
+    overall_cdr_range <- range(feasible_data$cdr_percentage, na.rm = TRUE)
+    cat("- CDR proportion range across all scenarios:", 
+        sprintf("%.1f%% to %.1f%%", overall_cdr_range[1], overall_cdr_range[2]), "\n")
+    
+    # Find scenarios with extreme CDR reliance
+    min_cdr_combo <- feasible_data[which.min(feasible_data$cdr_percentage), ]
+    max_cdr_combo <- feasible_data[which.max(feasible_data$cdr_percentage), ]
+    
+    cat("- Most mitigation-heavy strategy:", sprintf("%.1f%% CDR", min_cdr_combo$cdr_percentage),
+        "achieved by", min_cdr_combo$scenario_short, 
+        "with mitigation delay =", min_cdr_combo$mitigation_delay,
+        "years, CDR delay =", min_cdr_combo$cdr_delay, "years\n")
+    
+    cat("- Most CDR-heavy strategy:", sprintf("%.1f%% CDR", max_cdr_combo$cdr_percentage),
+        "from", max_cdr_combo$scenario_short,
+        "with mitigation delay =", max_cdr_combo$mitigation_delay,
+        "years, CDR delay =", max_cdr_combo$cdr_delay, "years\n")
+    
+    # Scenario-specific insights
+    scenario_summary <- feasible_data %>%
+      group_by(scenario_short) %>%
+      summarise(
+        min_cdr_pct = min(cdr_percentage, na.rm = TRUE),
+        max_cdr_pct = max(cdr_percentage, na.rm = TRUE),
+        median_cdr_pct = median(cdr_percentage, na.rm = TRUE),
+        mean_cdr_pct = mean(cdr_percentage, na.rm = TRUE),
+        n_feasible = n(),
+        .groups = "drop"
+      ) %>%
+      arrange(mean_cdr_pct)
+    
+    cat("\nPer-scenario CDR reliance patterns:\n")
+    for (i in 1:nrow(scenario_summary)) {
+      cat("- ", scenario_summary$scenario_short[i], ": ",
+          sprintf("%.1f%% to %.1f%%", scenario_summary$min_cdr_pct[i], scenario_summary$max_cdr_pct[i]),
+          " (mean: ", sprintf("%.1f%%", scenario_summary$mean_cdr_pct[i]), ", ",
+          scenario_summary$n_feasible[i], " feasible combinations)\n", sep = "")
+    }
+    
+    # Delay impact on CDR proportion
+    cat("\nDelay impact on strategy mix:\n")
+    
+    # No delay scenario (if available)
+    no_delay_data <- feasible_data %>% filter(mitigation_delay == 0, cdr_delay == 0)
+    if (nrow(no_delay_data) > 0) {
+      cat("- Immediate deployment CDR proportions: ",
+          paste(sprintf("%.1f%% (%s)", no_delay_data$cdr_percentage, no_delay_data$scenario_short), 
+                collapse = ", "), "\n")
+    }
+    
+    # Effect of mitigation delays only (CDR available immediately)
+    mitig_delay_effect <- feasible_data %>% 
+      filter(cdr_delay == 0) %>%
+      group_by(scenario_short, mitigation_delay) %>%
+      summarise(mean_cdr_pct = mean(cdr_percentage, na.rm = TRUE), .groups = "drop") %>%
+      group_by(scenario_short) %>%
+      summarise(
+        cdr_increase = max(mean_cdr_pct) - min(mean_cdr_pct),
+        .groups = "drop"
+      )
+    
+    if (nrow(mitig_delay_effect) > 0) {
+      cat("- CDR proportion increase due to mitigation delays (by scenario):\n")
+      for (i in 1:nrow(mitig_delay_effect)) {
+        cat("  ", mitig_delay_effect$scenario_short[i], ": +", 
+            sprintf("%.1f%%", mitig_delay_effect$cdr_increase[i]), "\n", sep = "")
+      }
+    }
+    
+    # Effect of CDR delays only (mitigation available immediately)
+    cdr_delay_effect <- feasible_data %>% 
+      filter(mitigation_delay == 0) %>%
+      group_by(scenario_short, cdr_delay) %>%
+      summarise(mean_cdr_pct = mean(cdr_percentage, na.rm = TRUE), .groups = "drop") %>%
+      group_by(scenario_short) %>%
+      summarise(
+        cdr_decrease = max(mean_cdr_pct) - min(mean_cdr_pct),
+        .groups = "drop"
+      )
+    
+    if (nrow(cdr_delay_effect) > 0) {
+      avg_cdr_decrease <- mean(abs(cdr_delay_effect$cdr_decrease), na.rm = TRUE)
+      cat("- Average CDR proportion change due to CDR delays: ", 
+          sprintf("%.1f%%", avg_cdr_decrease), "\n")
+    }
+    
+    # Strategy classification
+    cat("\nStrategy classification:\n")
+    
+    mitigation_heavy <- feasible_data %>% filter(cdr_percentage < 25)
+    balanced_strategy <- feasible_data %>% filter(cdr_percentage >= 25, cdr_percentage <= 75)
+    cdr_heavy <- feasible_data %>% filter(cdr_percentage > 75)
+    
+    cat("- Mitigation-heavy strategies (<25% CDR):", 
+        sprintf("%.1f%% of feasible combinations", 100 * nrow(mitigation_heavy) / n_feasible), "\n")
+    cat("- Balanced strategies (25-75% CDR):", 
+        sprintf("%.1f%% of feasible combinations", 100 * nrow(balanced_strategy) / n_feasible), "\n")
+    cat("- CDR-heavy strategies (>75% CDR):", 
+        sprintf("%.1f%% of feasible combinations", 100 * nrow(cdr_heavy) / n_feasible), "\n")
+    
+    # Policy implications
+    cat("\nPolicy implications:\n")
+    most_mitigation_scenario <- scenario_summary$scenario_short[which.min(scenario_summary$mean_cdr_pct)]
+    most_cdr_scenario <- scenario_summary$scenario_short[which.max(scenario_summary$mean_cdr_pct)]
+    
+    cat("- Scenario most reliant on mitigation:", most_mitigation_scenario, "\n")
+    cat("- Scenario most reliant on CDR:", most_cdr_scenario, "\n")
+    cat("- Deployment delays significantly alter optimal technology portfolio\n")
+    cat("- Early mitigation deployment reduces CDR dependence across all scenarios\n")
+    
+  } else {
+    cat("- No feasible combinations found within tested delay ranges\n")
+    cat("- Consider reducing maximum delays or adjusting model constraints\n")
+  }
+  
+  # Performance and coverage summary
+  if (!is.null(multi_delay_results$run_info)) {
+    cat("\nAnalysis performance:\n")
+    cat("- Total runtime:", sprintf("%.1f", multi_delay_results$run_info$total_time_minutes), "minutes\n")
+    
+    # Calculate scenario-specific convergence rates
+    convergence_by_scenario <- multi_delay_results$combined_results %>%
+      group_by(scenario_short) %>%
+      summarise(
+        convergence_rate = mean(feasible, na.rm = TRUE),
+        .groups = "drop"
+      )
+    
+    cat("- Convergence rates by scenario:\n")
+    for (i in 1:nrow(convergence_by_scenario)) {
+      cat("  ", convergence_by_scenario$scenario_short[i], ": ",
+          sprintf("%.1f%%", 100 * convergence_by_scenario$convergence_rate[i]), "\n", sep = "")
+    }
+  }
+  
+} else if (exists("multi_delay_results")) {
+  # Multi-scenario delay analysis was run but no valid results
+  cat("⚠ No valid multi-scenario delay analysis results for visualization\n")
+  cat("Multi-scenario delay analysis completed but produced no results\n")
+  
+} else {
+  # Multi-scenario delay analysis chunk was not run
+  cat("⚠ Multi-scenario delay analysis results not found\n")
+  cat("Please run the multi_delayed_deployment chunk first, or load existing results:\n")
+  cat("# multi_delay_results <- readRDS('path/to/multi_delay_results.rds')\n")
+}
+
+```
+
+
 ```{r scenario_comparison_analysis, eval=FALSE}
 
 # Multi-scenario comparison analysis
@@ -759,7 +1413,498 @@ if (exists("scenario_results") && !is.null(scenario_results$scenario_results)) {
 
 ```
 
+```{r control_comparison_analysis}
+# Generate three scenarios comparing different control options
+# Uses mathematically correct delayed deployment approach for constraints
 
+# Generate timestamp for file naming
+workflow_timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+# Source required functions
+source(here::here("src", "optimal_control_core.R"))
+
+cat("=== CONTROL COMPARISON ANALYSIS ===\n")
+cat("Scenario:", demo_scenario, "\n")
+cat("Comparing three policy scenarios:\n")
+cat("1. No controls (both mitigation and CDR delayed 81 years)\n")
+cat("2. Mitigation only (CDR delayed 81 years)\n")
+cat("3. Full controls (both available immediately)\n\n")
+
+# Use first parameter set for consistency
+comparison_params <- parameter_df[1, ]
+
+# Record start time
+comparison_start_time <- Sys.time()
+
+# Scenario 1: No controls (both delayed for full period)
+cat("Running Scenario 1: No controls...\n")
+scenario_1_no_controls <- run_optimal_control_with_delays(
+  parameter_df = comparison_params,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = demo_scenario,
+  mitigation_delay_years = 81,
+  cdr_delay_years = 81,
+  verbose = FALSE
+)
+
+# Scenario 2: Mitigation only (CDR delayed)
+cat("Running Scenario 2: Mitigation only...\n")
+scenario_2_mitigation_only <- run_optimal_control_with_delays(
+  parameter_df = comparison_params,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = demo_scenario,
+  mitigation_delay_years = 0,
+  cdr_delay_years = 81,
+  verbose = FALSE
+)
+
+# Scenario 3: Full controls (both available)
+cat("Running Scenario 3: Full controls...\n")
+scenario_3_full_controls <- run_optimal_control_with_delays(
+  parameter_df = comparison_params,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = demo_scenario,
+  mitigation_delay_years = 0,
+  cdr_delay_years = 0,
+  verbose = FALSE
+)
+
+# Calculate total runtime
+comparison_runtime <- difftime(Sys.time(), comparison_start_time, units = "mins")
+
+# Check if all scenarios converged
+all_converged <- all(c(
+  scenario_1_no_controls$converged,
+  scenario_2_mitigation_only$converged,
+  scenario_3_full_controls$converged
+))
+
+if (all_converged) {
+  cat("\n✓ ALL SCENARIOS COMPLETED SUCCESSFULLY!\n")
+  cat("Total runtime:", sprintf("%.2f", comparison_runtime), "minutes\n\n")
+  
+  # Summary comparison
+  cat("Scenario comparison summary:\n")
+  cat("1. No controls: Final temp =", round(scenario_1_no_controls$final_temperature, 2), 
+      "°C, Total cost =", sprintf("%.1f", scenario_1_no_controls$total_cost), "trillion $\n")
+  cat("2. Mitigation only: Final temp =", round(scenario_2_mitigation_only$final_temperature, 2), 
+      "°C, Total cost =", sprintf("%.1f", scenario_2_mitigation_only$total_cost), "trillion $\n")
+  cat("3. Full controls: Final temp =", round(scenario_3_full_controls$final_temperature, 2), 
+      "°C, Total cost =", sprintf("%.1f", scenario_3_full_controls$total_cost), "trillion $\n")
+  
+} else {
+  cat("\n⚠ WARNING: Some scenarios did not converge\n")
+  cat("Scenario 1 converged:", scenario_1_no_controls$converged, "\n")
+  cat("Scenario 2 converged:", scenario_2_mitigation_only$converged, "\n")
+  cat("Scenario 3 converged:", scenario_3_full_controls$converged, "\n")
+}
+
+# Store results for visualization
+control_comparison_results <- list(
+  no_controls = scenario_1_no_controls,
+  mitigation_only = scenario_2_mitigation_only,
+  full_controls = scenario_3_full_controls,
+  all_converged = all_converged,
+  scenario_name = demo_scenario,
+  timestamp = workflow_timestamp
+)
+
+# Save results
+comparison_filename <- paste0("control_comparison_results_", demo_scenario, "_", workflow_timestamp, ".rds")
+comparison_filepath <- here::here("output", comparison_filename)
+saveRDS(control_comparison_results, comparison_filepath)
+
+cat("\nControl comparison results saved to:", comparison_filepath, "\n")
+```
+
+```{r control_comparison_visualization}
+# Create visualization of control comparison results
+
+# Source visualization functions
+source(here::here("src", "visualisation_V2.R"))
+
+cat("=== CONTROL COMPARISON VISUALIZATION ===\n")
+
+# Check if control comparison results exist
+if (exists("control_comparison_results") && control_comparison_results$all_converged) {
+  
+  cat("Creating control comparison plot...\n")
+  
+  # Create the temperature dashboard (1×3 plot)
+  control_comparison_plot <- create_temperature_dashboard(
+  no_controls_result = control_comparison_results$no_controls,
+  mitigation_only_result = control_comparison_results$mitigation_only,
+  full_controls_result = control_comparison_results$full_controls,
+  scenario_name = control_comparison_results$scenario_name,
+  save_plot = FALSE
+)
+  
+  # Display the plot
+  print(control_comparison_plot)
+  
+  # Save the plot
+  plot_filename <- paste0("control_comparison_", control_comparison_results$scenario_name, 
+                          "_", control_comparison_results$timestamp, ".pdf")
+  plot_filepath <- here::here("figs", plot_filename)
+  
+  # Save with A4 landscape dimensions
+  ggsave(
+  filename = plot_filepath,
+  plot = control_comparison_plot,
+  width = 210,  # Narrower for 1×3 layout
+  height = 100, # Shorter for single row
+  units = "mm",
+  device = cairo_pdf
+)
+  
+  cat("✓ Control comparison plot saved to:", plot_filepath, "\n")
+  
+  # Display summary insights
+  cat("\nComparison insights:\n")
+  cat("Peak temperatures:\n")
+  cat("- No controls: ", sprintf("%.2f°C", max(control_comparison_results$no_controls$temperature_anomaly)), "\n")
+  cat("- Mitigation only: ", sprintf("%.2f°C", max(control_comparison_results$mitigation_only$temperature_anomaly)), "\n")
+  cat("- Full controls: ", sprintf("%.2f°C", max(control_comparison_results$full_controls$temperature_anomaly)), "\n")
+  
+  cat("\nFinal temperatures (2100):\n")
+  cat("- No controls: ", sprintf("%.2f°C", control_comparison_results$no_controls$final_temperature), "\n")
+  cat("- Mitigation only: ", sprintf("%.2f°C", control_comparison_results$mitigation_only$final_temperature), "\n")
+  cat("- Full controls: ", sprintf("%.2f°C", control_comparison_results$full_controls$final_temperature), "\n")
+  
+  # Years above 1.5°C comparison
+  years_above_1p5_no <- sum(control_comparison_results$no_controls$temperature_anomaly > 1.5)
+  years_above_1p5_mit <- sum(control_comparison_results$mitigation_only$temperature_anomaly > 1.5)
+  years_above_1p5_full <- sum(control_comparison_results$full_controls$temperature_anomaly > 1.5)
+  
+  cat("\nYears above 1.5°C:\n")
+  cat("- No controls: ", years_above_1p5_no, "years\n")
+  cat("- Mitigation only: ", years_above_1p5_mit, "years\n")
+  cat("- Full controls: ", years_above_1p5_full, "years\n")
+  
+} else if (exists("control_comparison_results")) {
+  # Control comparison was run but not all scenarios converged
+  cat("⚠ Control comparison results exist but not all scenarios converged\n")
+  cat("Cannot create reliable visualization\n")
+  
+} else {
+  # Control comparison chunk was not run
+  cat("⚠ Control comparison results not found\n")
+  cat("Please run the control_comparison_analysis chunk first, or load existing results:\n")
+  cat("# control_comparison_results <- readRDS('path/to/control_comparison_results.rds')\n")
+}
+```
+
+```{r phase_diagram_visualization}
+
+# Create phase diagrams showing how different interventions affect the 
+# emissions vs cumulative emissions trajectory in the same phase space
+
+# Source visualization functions
+source(here::here("src", "visualisation_V2.R"))
+
+cat("=== PHASE DIAGRAM ANALYSIS ===\n")
+
+# Check if control comparison results exist
+if (exists("control_comparison_results") && control_comparison_results$all_converged) {
+  
+  cat("Creating phase diagram dashboard...\n")
+  cat("All plots show: X = Cumulative Emissions, Y = Net Emissions\n")
+  cat("Demonstrating how interventions bend the trajectory in phase space\n\n")
+  
+  # Create the phase diagram dashboard
+  phase_diagram_dashboard <- create_phase_diagram_dashboard(
+    no_controls_result = control_comparison_results$no_controls,
+    mitigation_only_result = control_comparison_results$mitigation_only,
+    full_controls_result = control_comparison_results$full_controls,
+    scenario_name = control_comparison_results$scenario_name,
+    save_plot = FALSE
+  )
+  
+  # Display the dashboard
+  print(phase_diagram_dashboard)
+  
+  # Save the dashboard
+  phase_plot_filename <- paste0("phase_diagram_dashboard_", 
+                                control_comparison_results$scenario_name, "_", 
+                                control_comparison_results$timestamp, ".pdf")
+  phase_plot_filepath <- here::here("figs", phase_plot_filename)
+  
+  ggsave(
+    filename = phase_plot_filepath,
+    plot = phase_diagram_dashboard,
+    width = 190,
+    height = 190,
+    units = "mm",
+    device = cairo_pdf
+  )
+  
+  cat("✓ Phase diagram dashboard saved to:", phase_plot_filepath, "\n")
+  
+  # Display insights
+  cat("\nPhase diagram insights:\n")
+  cat("- Panel A: Uncontrolled emissions trajectory (E vs c)\n")
+  cat("- Panel B: How mitigation bends the trajectory (E-um vs c)\n")
+  cat("- Panel C: How CDR bends the trajectory (E-ur vs c)\n")
+  cat("- Panel D: Optimal trajectory with both controls (E-um-ur vs c)\n")
+  cat("- Compare how each intervention changes the fundamental relationship\n")
+  
+} else {
+  cat("⚠ Control comparison results not found or incomplete\n")
+  cat("Please run the control_comparison_analysis chunk first\n")
+}
+```
+
+```{r multi_delayed_deployment}
+
+source(here::here("src", "delayed_deployment_analysis.R"))
+source(here::here("src", "visualisation_V2.R"))
+workflow_timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+
+multi_delay_results <- run_multi_scenario_delayed_deployment(
+  parameter_df = parameter_df,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = "ignored",  # This parameter is ignored
+  max_delay_years = 70,
+  delay_step_size = 1
+)
+
+# In delayed_deployment_visualization chunk:
+multi_scenario_dashboard <- create_multi_scenario_delay_dashboard(
+  multi_scenario_results = multi_delay_results,
+  save_plot = TRUE
+)
+
+
+```
+
+```{r delayed_closeup}
+
+source(here::here("src", "optimal_control_core.R"))
+
+delay_examination_results <- run_optimal_control_with_delays(
+  parameter_df = parameter_df,
+  emissions_df = emissions_df,
+  economic_df = economic_df,
+  scenario = "SSP4-Baseline",
+  mitigation_delay_years = 20,
+  cdr_delay_years = 70
+)
+
+
+
+```
+
+```{r delay_closeup_tibble}
+
+# Initialize empty results tibble (run this once before your first simulation)
+library(tidyverse)
+
+delay_append_results_df <- tibble()
+
+```
+
+```{r delay_closeup_append}
+
+# Function to extract and append results after each simulation run
+append_results <- function(simulation_list, results_tibble) {
+  
+  # Extract the changing parameter
+  param_value <- simulation_list$cdr_delay_years
+  
+  # Extract the time series vectors you want to keep
+  vectors_to_keep <- list(
+    cumulative_emissions = simulation_list$cumulative_emissions,
+    temperature_anomaly = simulation_list$temperature_anomaly,
+    qty_mitig = simulation_list$qty_mitig,
+    qty_remov = simulation_list$qty_remov,
+    total_costs_annual = simulation_list$total_costs_annual
+  )
+  
+  # Convert to long format
+  new_data <- map_dfr(vectors_to_keep, ~tibble(
+    cdr_delay_years = param_value,
+    time_point = 1:81,  # assuming 81 sequential time points
+    value = .x
+  ), .id = "variable")
+  
+  # Append to existing results
+  bind_rows(results_tibble, new_data)
+}
+
+delay_append_results_df <- append_results(delay_examination_results, delay_append_results_df)
+
+```
+
+```{r delay_closeup_plotting}
+
+# Load required libraries
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(colorspace)
+
+#' @title Plot All Variables for Delay Analysis
+#' @description Creates faceted plot showing all 5 time series variables with 
+#' different mitigation delay values, using consistent styling
+#' @param results_tibble Long format tibble from append_results function
+#' @return ggplot object
+plot_all_variables <- function(results_tibble) {
+  
+  # Define the order you want variables to appear
+  variable_order <- c("cumulative_emissions", "temperature_anomaly", "qty_mitig", 
+                      "qty_remov", "total_costs_annual")
+  
+  # Prepare data with ordered factor levels
+  plot_data <- results_tibble %>%
+    mutate(variable = factor(variable, levels = variable_order))
+  
+  # Define consistent theme (matching your existing code)
+  my_theme <- theme_bw() +
+    theme(
+      text = element_text(size = 10),
+      plot.title = element_text(size = 10),
+      axis.title = element_text(size = 9),
+      axis.text = element_text(size = 8),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      legend.title = element_text(size = 8),
+      legend.text = element_text(size = 7),
+      legend.position = "bottom",
+      strip.text = element_text(size = 8),
+      strip.background = element_rect(fill = "white", colour = "black")
+    )
+  
+  # Create plot with faceting
+  p <- ggplot(plot_data, aes(x = time_point, y = value, color = factor(cdr_delay_years))) +
+    geom_line(linewidth = 0.8) +
+    facet_wrap(~variable, scales = "free_y", ncol = 2) +
+    scale_color_manual(
+      name = "CDR Delay (Years)",
+      values = c(
+        "#E69F00",    # Orange
+        "#56B4E9",    # Sky blue  
+        "#009E73",    # Green
+        "#F0E442",    # Yellow
+        "#CC79A7"     # Pink
+      )[1:length(unique(results_tibble$cdr_delay_years))]
+    ) +
+    labs(
+      title = "Simulation Results Comparison",
+      x = "Time Point",
+      y = "Value"
+    ) +
+    my_theme
+  
+  return(p)
+}
+
+#' @title Plot Single Variable for Delay Analysis
+#' @description Creates plot showing single time series variable with 
+#' different mitigation delay values, using consistent styling
+#' @param results_tibble Long format tibble from append_results function
+#' @param variable_name Name of variable to plot (one of: cumulative_emissions, 
+#' temperature_anomaly, qty_mitig, qty_remov, total_costs_annual)
+#' @return ggplot object
+# plot_variable <- function(results_tibble, variable_name) {
+#   
+#   # Define consistent theme (matching your existing code)
+#   my_theme <- theme_bw() +
+#     theme(
+#       text = element_text(size = 10),
+#       plot.title = element_text(size = 10),
+#       axis.title = element_text(size = 9),
+#       axis.text = element_text(size = 8),
+#       panel.grid.major = element_blank(),
+#       panel.grid.minor = element_blank(),
+#       legend.title = element_text(size = 8),
+#       legend.text = element_text(size = 7),
+#       legend.position = "bottom"
+#     )
+#   
+#   # Filter for specific variable
+#   plot_data <- results_tibble %>%
+#     filter(variable == variable_name)
+#   
+#   if (nrow(plot_data) == 0) {
+#     stop(paste("No data found for variable:", variable_name))
+#   }
+#   
+#   # Define variable-specific styling
+#   line_color_base <- switch(variable_name,
+#     "cumulative_emissions" = "firebrick",
+#     "temperature_anomaly" = "steelblue", 
+#     "qty_mitig" = "forestgreen",
+#     "qty_remov" = "purple4",
+#     "total_costs_annual" = "darkorange",
+#     "steelblue"  # default
+#   )
+#   
+#   # Define y-axis label
+#   y_label <- switch(variable_name,
+#     "cumulative_emissions" = "Cumulative Emissions (GtCO2)",
+#     "temperature_anomaly" = "Temperature Anomaly (°C)",
+#     "qty_mitig" = "Mitigation (GtCO2/yr)",
+#     "qty_remov" = "CDR (GtCO2/yr)", 
+#     "total_costs_annual" = "Total Annual Cost ($ Trillion)",
+#     "Value"  # default
+#   )
+#   
+#   # Create color palette based on base color
+#   n_delays <- length(unique(plot_data$mitigation_delay_years))
+#   color_palette <- colorspace::sequential_hcl(
+#     n = n_delays,
+#     h = switch(variable_name,
+#       "cumulative_emissions" = 10,    # Red hues
+#       "temperature_anomaly" = 240,    # Blue hues
+#       "qty_mitig" = 120,              # Green hues  
+#       "qty_remov" = 280,              # Purple hues
+#       "total_costs_annual" = 30,      # Orange hues
+#       240  # default blue
+#     ),
+#     c = 60,
+#     l = c(30, 80),
+#     power = 1
+#   )
+#   
+#   # Create plot
+#   p <- ggplot(plot_data, aes(x = time_point, y = value, color = factor(mitigation_delay_years))) +
+#     geom_line(linewidth = 1) +
+#     scale_color_manual(
+#       name = "Mitigation Delay (Years)",
+#       values = color_palette
+#     ) +
+#     labs(
+#       title = paste("Comparison:", gsub("_", " ", tools::toTitleCase(variable_name))),
+#       x = "Time Point", 
+#       y = y_label
+#     ) +
+#     my_theme
+#   
+#   # Add reference lines for specific variables
+#   if (variable_name == "temperature_anomaly") {
+#     p <- p + 
+#       geom_hline(yintercept = 1.5, linetype = "dashed", alpha = 0.7, color = "gray40")
+#   }
+#   
+#   return(p)
+# }
+
+
+# Create and save all variables plot
+all_vars_plot <- plot_all_variables(delay_append_results_df)
+
+# Save with timestamp (matching your existing code style)
+filename <- paste0("delay_analysis_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".pdf")
+ggsave(here::here("figs", filename), 
+       all_vars_plot, width = 190, height = 260, units = "mm", device = cairo_pdf)
+
+
+```
 
 ```{r export-sensitivity-results-to-csv, eval=FALSE}
 # Create timestamp for all files

@@ -937,7 +937,7 @@ oc_solution <- run_multiple_sweeps_parallel(parameter_df, test1_emissions, test1
 
 ```{r visuals_step6}
 
-source(here::here("src", "visualisation_step6_V2.R"))
+source(here::here("archive", "visualisation_step6_V2.R"))
 dashboard <- create_step6_dashboard(result_step6_shooting)
 print(dashboard)
 

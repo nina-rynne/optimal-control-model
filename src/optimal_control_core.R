@@ -615,3 +615,328 @@ optimal_control_shooting <- function(parameter_df,
   
   return(best_result)
 }
+
+#' @title Run Optimal Control with Correct Delayed Deployment
+#' @description
+#' Runs optimal control with deployment delays using the mathematically correct
+#' implementation from delayed_deployment.R. Returns full solution objects
+#' including complete time series for visualization.
+#'
+#' @param parameter_df Single-row data frame containing all model parameters
+#' @param emissions_df Data frame with emissions scenario data
+#' @param economic_df Data frame with economic scenario data
+#' @param scenario Scenario name to filter data (e.g., "SSP3-Baseline")
+#' @param target_emissions Target cumulative emissions constraint (default: uses co2_target_2100 from parameter_df)
+#' @param mitigation_delay_years Years to delay mitigation deployment (default: 0)
+#' @param cdr_delay_years Years to delay CDR deployment (default: 0)
+#' @param verbose Print progress information (default: FALSE)
+#'
+#' @return Complete solution list with full time series data
+#'
+#' @examples
+#' # No controls (both delayed for full period)
+#' result_no_controls <- run_optimal_control_with_delays(
+#'   parameter_df = my_params,
+#'   emissions_df = emissions_df,
+#'   economic_df = economic_df,
+#'   scenario = "SSP3-Baseline",
+#'   mitigation_delay_years = 81,
+#'   cdr_delay_years = 81
+#' )
+run_optimal_control_with_delays <- function(parameter_df,
+                                            emissions_df,
+                                            economic_df,
+                                            scenario,
+                                            target_emissions = NULL,
+                                            mitigation_delay_years = 0,
+                                            cdr_delay_years = 0,
+                                            verbose = FALSE) {
+  
+  # Input validation
+  if (!is.data.frame(parameter_df) || nrow(parameter_df) != 1) {
+    stop("parameter_df must be a single-row data frame")
+  }
+  
+  # Use target from parameter_df if not specified
+  if (is.null(target_emissions)) {
+    if ("co2_target_2100" %in% names(parameter_df)) {
+      target_emissions <- parameter_df$co2_target_2100
+    } else {
+      stop("target_emissions must be specified or parameter_df must contain co2_target_2100")
+    }
+  }
+  
+  # Filter data by scenario (using correct delayed deployment approach)
+  emissions_scenario <- emissions_df %>%
+    dplyr::filter(Scenario == scenario) %>%
+    dplyr::arrange(Year)
+  
+  economic_scenario <- economic_df %>%
+    dplyr::filter(Scenario == scenario) %>%
+    dplyr::arrange(Year)
+  
+  if (nrow(emissions_scenario) == 0 || nrow(economic_scenario) == 0) {
+    stop("No data found for scenario: ", scenario)
+  }
+  
+  if (verbose) {
+    cat("=== OPTIMAL CONTROL WITH DELAYED DEPLOYMENT ===\n")
+    cat("Scenario:", scenario, "\n")
+    cat("Mitigation delay:", mitigation_delay_years, "years\n")
+    cat("CDR delay:", cdr_delay_years, "years\n")
+    cat("Target emissions:", target_emissions, "GtCO2\n\n")
+  }
+  
+  # Extract parameters (following delayed_deployment.R approach)
+  cost_mitig_unit <- parameter_df$cost_mitig_unit
+  cost_remov_unit <- parameter_df$cost_remov_unit
+  exp_mitig <- parameter_df$exp_mitig
+  exp_remov <- parameter_df$exp_remov
+  exp_temp_anom <- parameter_df$exp_temp_anom
+  clim_temp_init <- parameter_df$clim_temp_init
+  tcre <- parameter_df$tcre
+  econ_dam_pct <- parameter_df$econ_dam_pct
+  disc_rate <- parameter_df$disc_rate
+  
+  # Time and data setup
+  years <- emissions_scenario$Year
+  years_rel <- years - min(years)
+  n_years <- length(years)
+  dt <- 1
+  baseline_emissions <- emissions_scenario$Value
+  baseline_gwp <- economic_scenario$Value
+  
+  # Calculate deployment start years (following delayed_deployment.R)
+  mitigation_start_year <- min(years) + mitigation_delay_years
+  cdr_start_year <- min(years) + cdr_delay_years
+  
+  # Initialize variables
+  cumulative_emissions <- rep(0, n_years)
+  temperature_anomaly <- rep(clim_temp_init, n_years)
+  qty_mitig <- rep(0, n_years)
+  qty_remov <- rep(0, n_years)
+  adjoint_var <- rep(0, n_years)
+  
+  # Shooting method parameters
+  max_shooting_iterations <- 100
+  shooting_tolerance <- 1.0
+  lambda_bounds <- c(0, 5000)
+  
+  # Shooting method implementation (simplified for this specific use)
+  lambda_low <- lambda_bounds[1]
+  lambda_high <- lambda_bounds[2]
+  
+  # Test bounds and implement secant method
+  for (shooting_iter in 1:max_shooting_iterations) {
+    
+    # Use midpoint for lambda
+    lambda_current <- (lambda_low + lambda_high) / 2
+    
+    # Set terminal condition
+    adjoint_var[n_years] <- lambda_current
+    
+    # Forward-backward sweep (following delayed_deployment.R structure)
+    max_iterations <- 500
+    tolerance <- 0.001
+    update_weight <- 0.05
+    epsilon <- 0.01
+    
+    for (iter in 1:max_iterations) {
+      
+      # Store previous values
+      prev_mitig <- qty_mitig
+      prev_remov <- qty_remov
+      prev_cumulative <- cumulative_emissions
+      prev_adjoint <- adjoint_var
+      
+      # === FORWARD SWEEP ===
+      for (i in 1:n_years) {
+        if (i == 1) {
+          annual_net <- baseline_emissions[i] - qty_mitig[i] - qty_remov[i]
+          cumulative_emissions[i] <- 0 + annual_net * dt
+        } else {
+          annual_net <- baseline_emissions[i] - qty_mitig[i] - qty_remov[i]
+          cumulative_emissions[i] <- cumulative_emissions[i-1] + annual_net * dt
+        }
+      }
+      
+      # Calculate temperature anomaly
+      temperature_anomaly <- clim_temp_init + (cumulative_emissions / 1000) * tcre
+      temperature_anomaly <- pmax(temperature_anomaly, 0.1)
+      
+      # === BACKWARD SWEEP ===
+      for (i in (n_years-1):1) {
+        j <- i
+        temp_base <- temperature_anomaly[j]
+        discount_factor <- exp(-disc_rate * years_rel[j])
+        gwp_value <- baseline_gwp[j]
+        
+        adjoint_derivative <- -(exp_temp_anom * gwp_value * econ_dam_pct * 
+                                  (tcre / 1000) * discount_factor * 
+                                  (temp_base^(exp_temp_anom - 1)))
+        
+        if (!is.finite(adjoint_derivative)) {
+          adjoint_derivative <- 0
+        }
+        
+        adjoint_var[j] <- adjoint_var[j+1] - adjoint_derivative * dt
+      }
+      
+      # === UPDATE CONTROLS WITH CORRECT DELAY LOGIC ===
+      new_mitig <- rep(0, n_years)
+      new_remov <- rep(0, n_years)
+      
+      for (i in 1:n_years) {
+        current_year <- years[i]
+        discount_factor <- exp(-disc_rate * years_rel[i])
+        
+        # MITIGATION CONTROL with DELAYED DEPLOYMENT
+        if (current_year >= mitigation_start_year) {
+          # Calculate unconstrained optimal mitigation
+          mitig_denominator <- exp_mitig * cost_mitig_unit * discount_factor
+          if (mitig_denominator > 1e-10 && adjoint_var[i] > 0) {
+            um_unconstrained <- adjoint_var[i] / mitig_denominator
+          } else {
+            um_unconstrained <- 0
+          }
+          
+          # Apply bounds with strict inequality
+          if (um_unconstrained <= 0) {
+            new_mitig[i] <- 0
+          } else if (um_unconstrained >= baseline_emissions[i] - epsilon) {
+            new_mitig[i] <- baseline_emissions[i] - epsilon
+          } else {
+            new_mitig[i] <- um_unconstrained
+          }
+        } else {
+          # Before deployment date - mitigation forced to zero
+          new_mitig[i] <- 0
+        }
+        
+        # CDR CONTROL with DELAYED DEPLOYMENT
+        if (current_year >= cdr_start_year) {
+          remov_denominator <- exp_remov * cost_remov_unit * discount_factor
+          if (remov_denominator > 1e-10 && adjoint_var[i] > 0) {
+            ur_unconstrained <- adjoint_var[i] / remov_denominator
+          } else {
+            ur_unconstrained <- 0
+          }
+          
+          if (ur_unconstrained <= 0) {
+            new_remov[i] <- 0
+          } else {
+            new_remov[i] <- ur_unconstrained
+          }
+        } else {
+          # Before deployment date - CDR forced to zero
+          new_remov[i] <- 0
+        }
+      }
+      
+      # Update with smoothing
+      qty_mitig <- update_weight * new_mitig + (1 - update_weight) * prev_mitig
+      qty_remov <- update_weight * new_remov + (1 - update_weight) * prev_remov
+      
+      # Check convergence
+      mitig_change <- sum(abs(qty_mitig - prev_mitig))
+      remov_change <- sum(abs(qty_remov - prev_remov))
+      cumulative_change <- sum(abs(cumulative_emissions - prev_cumulative))
+      adjoint_change <- sum(abs(adjoint_var - prev_adjoint))
+      
+      total_change <- mitig_change + remov_change + cumulative_change + adjoint_change
+      
+      if (total_change < tolerance) {
+        break
+      }
+    }
+    
+    # Check emissions constraint
+    final_emissions <- cumulative_emissions[n_years]
+    emission_gap <- final_emissions - target_emissions
+    
+    if (abs(emission_gap) <= shooting_tolerance) {
+      break
+    }
+    
+    # Update bounds for shooting method
+    if (emission_gap > 0) {
+      lambda_low <- lambda_current
+    } else {
+      lambda_high <- lambda_current
+    }
+  }
+  
+  # Calculate costs and final metrics
+  final_emissions <- cumulative_emissions[n_years]
+  final_temperature <- temperature_anomaly[n_years]
+  discount_factors <- exp(-disc_rate * years_rel)
+  
+  # Annual costs
+  mitig_costs_annual <- cost_mitig_unit * qty_mitig^exp_mitig * discount_factors
+  remov_costs_annual <- cost_remov_unit * qty_remov^exp_remov * discount_factors
+  temp_costs_annual <- baseline_gwp * econ_dam_pct * (temperature_anomaly^exp_temp_anom) * discount_factors
+  total_costs_annual <- mitig_costs_annual + remov_costs_annual + temp_costs_annual
+  
+  # Total costs
+  total_mitig_cost <- sum(mitig_costs_annual)
+  total_remov_cost <- sum(remov_costs_annual)
+  total_temp_cost <- sum(temp_costs_annual)
+  total_cost <- sum(total_costs_annual)
+  
+  if (verbose) {
+    cat("Solution complete:\n")
+    cat("Final emissions:", round(final_emissions, 1), "GtCO2\n")
+    cat("Final temperature:", round(final_temperature, 2), "°C\n")
+    cat("Total cost:", sprintf("%.1f", total_cost), "trillion $\n")
+  }
+  
+  # Return complete solution structure (matching optimal_control_solve format)
+  return(list(
+    # Convergence and diagnostic information
+    converged = (total_change < tolerance),
+    iterations = iter,
+    final_emissions = final_emissions,
+    emission_gap = emission_gap,
+    constraint_violations = 0,
+    
+    # Time and deployment information
+    years = years,
+    years_rel = years_rel,
+    n_years = n_years,
+    mitigation_delay_years = mitigation_delay_years,
+    cdr_delay_years = cdr_delay_years,
+    mitigation_start_year = mitigation_start_year,
+    cdr_start_year = cdr_start_year,
+    
+    # Baseline data
+    baseline_annual_emissions = baseline_emissions,
+    baseline_annual_gwp = baseline_gwp,
+    
+    # State variables
+    cumulative_emissions = cumulative_emissions,
+    temperature_anomaly = temperature_anomaly,
+    
+    # Control variables
+    qty_mitig = qty_mitig,
+    qty_remov = qty_remov,
+    
+    # Adjoint variable
+    adjoint_var = adjoint_var,
+    
+    # Annual cost vectors
+    mitig_costs_annual = mitig_costs_annual,
+    remov_costs_annual = remov_costs_annual,
+    temp_costs_annual = temp_costs_annual,
+    total_costs_annual = total_costs_annual,
+    
+    # Summary metrics
+    final_temperature = final_temperature,
+    total_cost = total_cost,
+    mitig_cost = total_mitig_cost,
+    remov_cost = total_remov_cost,
+    temp_cost = total_temp_cost,
+    
+    # Parameters for reference
+    parameters = parameter_df
+  ))
+}
